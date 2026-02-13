@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sf-bg: #0a0a0f;
+  --sf-surface: #12121a;
+  --sf-border: #1e1e2e;
+  --sf-accent: #7c3aed;
+}
+
+body {
+  background: var(--sf-bg);
+  color: #e2e8f0;
+}
+
+@layer utilities {
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+  }
+  .glow-green {
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+  }
+  .glow-red {
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+  }
+}
