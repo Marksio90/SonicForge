@@ -9,6 +9,13 @@ from ..core.config import get_settings
 from ..core.storage import upload_track, upload_track_metadata
 from .base import BaseAgent
 
+try:
+    import replicate as _replicate_mod
+
+    _has_replicate = True
+except ImportError:
+    _has_replicate = False
+
 settings = get_settings()
 logger = structlog.get_logger(__name__)
 
@@ -103,6 +110,8 @@ class ProducerAgent(BaseAgent):
             audio_data = await self._generate_udio(concept)
         elif engine == "elevenlabs" and settings.elevenlabs_api_key:
             audio_data = await self._generate_elevenlabs(concept)
+        elif engine == "replicate" and settings.replicate_api_token and _has_replicate:
+            audio_data = await self._generate_replicate(concept)
         else:
             audio_data = self._generate_placeholder(concept)
 
@@ -210,6 +219,31 @@ class ProducerAgent(BaseAgent):
         """Generate a placeholder audio marker for development without API keys."""
         return b"\xff\xfb\x90\x00" + b"\x00" * 417
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30))
+    async def _generate_replicate(self, concept: dict) -> bytes:
+        """Generate music using Replicate (Meta MusicGen) — stable public API fallback."""
+        import os
+
+        os.environ["REPLICATE_API_TOKEN"] = settings.replicate_api_token
+
+        output = await asyncio.to_thread(
+            _replicate_mod.run,
+            "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedbbe",
+            input={
+                "prompt": concept["prompt"],
+                "duration": 30,
+                "model_version": "stereo-large",
+                "output_format": "mp3",
+                "normalization_strategy": "loudness",
+            },
+        )
+        audio_url = output if isinstance(output, str) else str(output)
+
+        client = _get_http_client()
+        resp = await client.get(audio_url)
+        resp.raise_for_status()
+        return resp.content
+
     def _select_engine(self, concept: dict, variant_index: int) -> str:
         """Select the best generation engine — Udio is the primary engine."""
         engines = []
@@ -220,6 +254,8 @@ class ProducerAgent(BaseAgent):
             engines.append("suno")
         if settings.elevenlabs_api_key:
             engines.append("elevenlabs")
+        if settings.replicate_api_token and _has_replicate:
+            engines.append("replicate")
 
         if not engines:
             return "placeholder"
