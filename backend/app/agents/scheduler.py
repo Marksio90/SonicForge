@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import structlog
 from redis import Redis
 
-from ..core.config import TIME_ENERGY_MAP, Genre, get_settings
+from ..core.config import GENRE_PROFILES, TIME_ENERGY_MAP, Genre, get_settings
 from .base import BaseAgent
 
 settings = get_settings()
@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 
 
 class SchedulerAgent(BaseAgent):
-    """Plans the 24/7 playlist based on time-of-day, genre flow, and listener requests."""
+    """Plans the 24/7 playlist with weighted genre selection and diversity enforcement."""
 
     def __init__(self):
         super().__init__("scheduler")
@@ -35,20 +35,15 @@ class SchedulerAgent(BaseAgent):
             raise ValueError(f"Unknown task type: {task_type}")
 
     async def schedule_next_track(self) -> dict:
-        """Determine what track should play next based on context."""
+        """Determine what track should play next based on time, history, and requests."""
         now = datetime.now(timezone.utc)
         current_hour = now.hour
 
-        # Determine preferred genres for current time
         preferred_genres, energy_level = self._get_time_context(current_hour)
-
-        # Check for listener requests
         requests = self._get_pending_requests()
-
-        # Check recently played to avoid repetition
         recent_genres = self._get_recent_genres(count=5)
 
-        # Select genre with variety
+        # Select genre with weighted diversity algorithm
         selected_genre = self._select_genre(preferred_genres, recent_genres, requests)
 
         energy_map = {
@@ -68,11 +63,11 @@ class SchedulerAgent(BaseAgent):
             "timestamp": now.isoformat(),
         }
 
-        # Push decision to Redis queue
         self.redis.rpush(
             "schedule:decisions",
             json.dumps(schedule_decision),
         )
+        self.redis.ltrim("schedule:decisions", -500, -1)
 
         self.logger.info(
             "scheduled_next",
@@ -92,17 +87,18 @@ class SchedulerAgent(BaseAgent):
         deficit = max(0, min_buffer - queue_length)
 
         if needs_more:
+            priority = "critical" if queue_length < 3 else "high" if queue_length < 5 else "normal"
             self.logger.warning(
                 "buffer_low",
                 current=queue_length,
                 minimum=min_buffer,
                 deficit=deficit,
+                priority=priority,
             )
-            # Signal orchestrator to generate more tracks
             await self.send_message("orchestrator", {
                 "type": "generate_tracks",
                 "count": deficit,
-                "priority": "high" if queue_length < 5 else "normal",
+                "priority": priority,
             })
 
         return {
@@ -123,13 +119,13 @@ class SchedulerAgent(BaseAgent):
         }
 
         self.redis.rpush("schedule:requests", json.dumps(request_data))
-        self.redis.ltrim("schedule:requests", -100, -1)  # keep last 100
+        self.redis.ltrim("schedule:requests", -100, -1)
 
         return {"accepted": True, "request": request_data}
 
     async def get_current_queue(self) -> dict:
         """Get the current playback queue."""
-        queue_items = self.redis.lrange("stream:queue", 0, 19)  # next 20
+        queue_items = self.redis.lrange("stream:queue", 0, 19)
         return {
             "queue": [json.loads(item) for item in queue_items],
             "total_length": self.redis.llen("stream:queue"),
@@ -175,7 +171,7 @@ class SchedulerAgent(BaseAgent):
         recent: list[str],
         requests: list[dict],
     ) -> str:
-        """Select a genre balancing preferences, variety, and requests."""
+        """Select a genre using weighted random with diversity enforcement."""
         # Priority 1: Recent listener requests for genre
         for req in reversed(requests):
             if req.get("type") == "genre":
@@ -185,13 +181,19 @@ class SchedulerAgent(BaseAgent):
                 except ValueError:
                     pass
 
-        # Priority 2: Preferred genres for this time, avoiding recent repeats
-        available = [g for g in preferred if g.value not in recent[-2:]]
-        if available:
-            return random.choice(available).value
-
-        # Fallback to any preferred
+        # Priority 2: Weighted selection from preferred genres, penalizing recent repeats
         if preferred:
-            return random.choice(preferred).value
+            weights = []
+            for g in preferred:
+                base_weight = GENRE_PROFILES.get(g, {}).get("weight", 1.0)
+                # Penalize recently played genres for diversity
+                if g.value in recent[-2:]:
+                    base_weight *= 0.3
+                elif g.value in recent:
+                    base_weight *= 0.6
+                weights.append(base_weight)
+
+            selected = random.choices(preferred, weights=weights, k=1)[0]
+            return selected.value
 
         return random.choice(list(Genre)).value

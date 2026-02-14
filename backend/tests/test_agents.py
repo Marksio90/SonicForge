@@ -119,3 +119,46 @@ async def test_composer_trend_analysis():
 
     assert "trending_bpm" in result
     assert "trending_keys" in result
+
+
+@pytest.mark.asyncio
+async def test_composer_weighted_genre_select():
+    """Test that weighted genre selection produces valid genres."""
+    composer = ComposerAgent()
+    for _ in range(20):
+        genre = composer._weighted_genre_select()
+        assert genre in [g.value for g in Genre]
+
+
+@pytest.mark.asyncio
+async def test_composer_energy_key_preferences():
+    """Test that energy-aware key selection works for all energy levels."""
+    composer = ComposerAgent()
+    for energy in range(1, 6):
+        concept = await composer.execute({
+            "type": "create_concept",
+            "genre": "drum_and_bass",
+            "energy": energy,
+        })
+        assert concept["energy"] == energy
+        assert concept["key"]  # key should always be set
+
+
+@pytest.mark.asyncio
+async def test_critic_parallel_evaluation():
+    """Test that batch evaluation correctly ranks variants."""
+    critic = CriticAgent()
+    variants = [
+        {"track_id": f"parallel-test-{i}", "genre": "trance_uplifting"}
+        for i in range(5)
+    ]
+    result = await critic.execute({
+        "type": "evaluate_batch",
+        "variants": variants,
+    })
+
+    assert result["total_count"] == 5
+    # Scores should be sorted descending
+    evaluations = result["evaluations"]
+    for i in range(len(evaluations) - 1):
+        assert evaluations[i]["overall_score"] >= evaluations[i + 1]["overall_score"]

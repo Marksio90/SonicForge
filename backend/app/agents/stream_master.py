@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import signal
 import subprocess
 from datetime import datetime, timezone
@@ -15,12 +14,14 @@ logger = structlog.get_logger(__name__)
 
 
 class StreamMasterAgent(BaseAgent):
-    """Manages the 24/7 live stream via FFmpeg → RTMP to YouTube."""
+    """Manages the 24/7 live stream via FFmpeg with auto-recovery and crossfade support."""
 
     def __init__(self):
         super().__init__("stream_master")
         self._ffmpeg_process: subprocess.Popen | None = None
         self._is_streaming = False
+        self._restart_count = 0
+        self._max_restart_attempts = 10
 
     async def execute(self, task: dict) -> dict:
         task_type = task.get("type", "health_check")
@@ -47,10 +48,7 @@ class StreamMasterAgent(BaseAgent):
 
         self.logger.info("starting_stream")
 
-        # Build the concat file from queue
         queue_file = await self._build_queue_file()
-
-        # Build FFmpeg command
         cmd = self._build_ffmpeg_command(queue_file)
 
         try:
@@ -60,13 +58,14 @@ class StreamMasterAgent(BaseAgent):
                 stderr=subprocess.PIPE,
             )
             self._is_streaming = True
+            self._restart_count = 0
 
-            # Record stream start in Redis
             self.redis.hset("stream:status", mapping={
                 "active": "true",
                 "pid": str(self._ffmpeg_process.pid),
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "platform": "youtube",
+                "restart_count": str(self._restart_count),
             })
 
             self.logger.info("stream_started", pid=self._ffmpeg_process.pid)
@@ -116,16 +115,25 @@ class StreamMasterAgent(BaseAgent):
             health["pid"] = self._ffmpeg_process.pid
 
             if poll_result is not None:
-                # FFmpeg crashed
                 health["needs_restart"] = True
                 health["exit_code"] = poll_result
                 self.logger.error("ffmpeg_crashed", exit_code=poll_result)
 
-                # Auto-restart
-                await self.restart_stream()
-                health["auto_restarted"] = True
+                # Auto-restart with backoff protection
+                if self._restart_count < self._max_restart_attempts:
+                    backoff = min(2 ** self._restart_count, 30)
+                    self.logger.info(
+                        "auto_restart_scheduled",
+                        attempt=self._restart_count + 1,
+                        backoff_seconds=backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    await self.restart_stream()
+                    health["auto_restarted"] = True
+                else:
+                    self.logger.error("max_restart_attempts_reached")
+                    health["auto_restarted"] = False
 
-        # Record health check
         self.redis.lpush("stream:health_log", json.dumps(health))
         self.redis.ltrim("stream:health_log", 0, 999)
 
@@ -133,16 +141,17 @@ class StreamMasterAgent(BaseAgent):
 
     async def restart_stream(self) -> dict:
         """Restart the stream (stop then start)."""
-        self.logger.info("restarting_stream")
+        self.logger.info("restarting_stream", attempt=self._restart_count + 1)
+        self._restart_count += 1
         await self.stop_stream()
-        await asyncio.sleep(2)  # brief pause
+        await asyncio.sleep(2)
         result = await self.start_stream()
         result["restarted"] = True
+        result["restart_count"] = self._restart_count
         return result
 
     async def play_next_track(self) -> dict:
         """Advance to the next track in queue."""
-        # Pop from Redis queue
         next_item = self.redis.lpop("stream:queue")
         if not next_item:
             self.logger.warning("queue_empty")
@@ -150,12 +159,10 @@ class StreamMasterAgent(BaseAgent):
 
         track_data = json.loads(next_item)
 
-        # Record in history
         track_data["played_at"] = datetime.now(timezone.utc).isoformat()
         self.redis.lpush("stream:history", json.dumps(track_data))
         self.redis.ltrim("stream:history", 0, 499)
 
-        # Update current track
         self.redis.hset("stream:current_track", mapping={
             "track_id": track_data.get("track_id", ""),
             "genre": track_data.get("genre", ""),
@@ -197,7 +204,7 @@ class StreamMasterAgent(BaseAgent):
         return queue_file
 
     def _build_ffmpeg_command(self, queue_file: str) -> list[str]:
-        """Build the FFmpeg command for RTMP streaming."""
+        """Build optimized FFmpeg command for RTMP streaming."""
         stream_url = f"{settings.youtube_rtmp_url}/{settings.youtube_stream_key}"
 
         return [
@@ -206,20 +213,23 @@ class StreamMasterAgent(BaseAgent):
             "-f", "concat",
             "-safe", "0",
             "-i", queue_file,
-            # Audio encoding
+            # Audio encoding — high quality AAC
             "-c:a", "aac",
             "-b:a", settings.stream_bitrate_audio,
-            "-ar", "44100",
+            "-ar", "48000",
+            "-ac", "2",
             # Video (from visual pipeline or generated)
             "-f", "lavfi",
             "-i", f"color=c=black:s={settings.stream_resolution}:r={settings.stream_fps}",
             "-c:v", "libx264",
             "-preset", "veryfast",
+            "-tune", "zerolatency",
             "-b:v", settings.stream_bitrate_video,
             "-maxrate", settings.stream_bitrate_video,
-            "-bufsize", "9000k",
+            "-bufsize", "12000k",
             "-pix_fmt", "yuv420p",
-            "-g", str(settings.stream_fps * 2),  # keyframe interval
+            "-g", str(settings.stream_fps * 2),
+            "-threads", "0",
             # Output
             "-f", "flv",
             stream_url,
