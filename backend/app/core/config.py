@@ -148,6 +148,9 @@ class Settings(BaseSettings):
     udio_api_url: str = "https://api.udio.com/v1"
     elevenlabs_api_key: str = ""
 
+    # Replicate (MusicGen) — stable fallback when Suno/Udio keys are unavailable
+    replicate_api_token: str = ""
+
     # LLM APIs — OpenAI is the primary provider for all LLM operations
     openai_api_key: str = ""
     anthropic_api_key: str = ""  # legacy fallback only

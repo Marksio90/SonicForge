@@ -204,23 +204,56 @@ class StreamMasterAgent(BaseAgent):
         return queue_file
 
     def _build_ffmpeg_command(self, queue_file: str) -> list[str]:
-        """Build optimized FFmpeg command for RTMP streaming."""
-        stream_url = f"{settings.youtube_rtmp_url}/{settings.youtube_stream_key}"
+        """Build optimized FFmpeg command for RTMP streaming.
 
+        Uses a background video loop if available at /app/assets/background_loop.mp4,
+        otherwise falls back to a lavfi color source (black screen).
+        """
+        import os
+
+        stream_url = f"{settings.youtube_rtmp_url}/{settings.youtube_stream_key}"
+        bg_video = "/app/assets/background_loop.mp4"
+
+        if os.path.isfile(bg_video):
+            return [
+                "ffmpeg",
+                "-re",
+                "-stream_loop", "-1",
+                "-i", bg_video,
+                "-f", "concat",
+                "-safe", "0",
+                "-i", queue_file,
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-tune", "zerolatency",
+                "-b:v", settings.stream_bitrate_video,
+                "-maxrate", settings.stream_bitrate_video,
+                "-bufsize", "12000k",
+                "-pix_fmt", "yuv420p",
+                "-g", str(settings.stream_fps * 2),
+                "-c:a", "aac",
+                "-b:a", settings.stream_bitrate_audio,
+                "-ar", "48000",
+                "-ac", "2",
+                "-threads", "0",
+                "-f", "flv",
+                stream_url,
+            ]
+
+        # Fallback: generate a solid-color video source when no background video exists
         return [
             "ffmpeg",
             "-re",
+            "-f", "lavfi",
+            "-i", f"color=c=0x0a0a0f:s={settings.stream_resolution}:r={settings.stream_fps}",
             "-f", "concat",
             "-safe", "0",
             "-i", queue_file,
-            # Audio encoding — high quality AAC
-            "-c:a", "aac",
-            "-b:a", settings.stream_bitrate_audio,
-            "-ar", "48000",
-            "-ac", "2",
-            # Video (from visual pipeline or generated)
-            "-f", "lavfi",
-            "-i", f"color=c=black:s={settings.stream_resolution}:r={settings.stream_fps}",
+            "-map", "0:v",
+            "-map", "1:a",
+            "-shortest",
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
@@ -229,8 +262,11 @@ class StreamMasterAgent(BaseAgent):
             "-bufsize", "12000k",
             "-pix_fmt", "yuv420p",
             "-g", str(settings.stream_fps * 2),
+            "-c:a", "aac",
+            "-b:a", settings.stream_bitrate_audio,
+            "-ar", "48000",
+            "-ac", "2",
             "-threads", "0",
-            # Output
             "-f", "flv",
             stream_url,
         ]
