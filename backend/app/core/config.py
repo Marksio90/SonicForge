@@ -112,7 +112,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "SonicForge"
-    app_version: str = "1.0.0"
+    app_version: str = "2.0.0"
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = True
     secret_key: str = "change-me-in-production"
@@ -141,15 +141,31 @@ class Settings(BaseSettings):
     s3_bucket_tracks: str = "sonicforge-tracks"
     s3_bucket_visuals: str = "sonicforge-visuals"
 
-    # AI Music Generation
+    # === Open-Source AI Music Generation (MusicGen) ===
+    model_source: str = "local"  # "local" (GPU on host) or "runpod" (remote GPU)
+    musicgen_model_version: str = "facebook/musicgen-stereo-large"
+    musicgen_api_url: str = "http://musicgen:8001"  # local MusicGen service
+    musicgen_segment_duration: int = 30  # seconds per generation segment
+    musicgen_segments_count: int = 4  # segments per track (total = segment_duration * count)
+    musicgen_continuation_overlap: int = 5  # seconds of overlap for audio continuation
+
+    # RunPod (optional remote GPU): https://runpod.io
+    runpod_api_key: str = ""
+    runpod_endpoint_id: str = ""
+
+    # Legacy paid APIs (optional fallback — set keys to enable)
     suno_api_key: str = ""
     suno_api_url: str = "https://api.suno.ai/v1"
     udio_api_key: str = ""
     udio_api_url: str = "https://api.udio.com/v1"
     elevenlabs_api_key: str = ""
-
-    # Replicate (MusicGen) — stable fallback when Suno/Udio keys are unavailable
     replicate_api_token: str = ""
+
+    # === Open-Source Visuals (Stable Diffusion / ComfyUI) ===
+    stable_diffusion_url: str = "http://comfyui:7860"  # A1111 or ComfyUI API
+    sd_model: str = "stabilityai/stable-diffusion-xl-base-1.0"
+    animatediff_enabled: bool = True  # Generate looping video instead of static images
+    visual_loop_duration: int = 8  # seconds for looping video
 
     # LLM APIs — OpenAI is the primary provider for all LLM operations
     openai_api_key: str = ""
@@ -159,6 +175,17 @@ class Settings(BaseSettings):
     llm_model_fast: str = "gpt-4o-mini"  # fast model for lightweight tasks
     llm_temperature: float = 0.85  # creativity level for music prompt generation
     llm_max_retries: int = 3  # retry count for LLM API calls
+
+    # === Audio Mastering ===
+    mastering_target_lufs: float = -14.0  # YouTube loudness standard
+    mastering_true_peak: float = -1.0  # dBTP limiter ceiling
+    mastering_stereo_width: float = 1.2  # stereo widening factor (1.0 = no change)
+
+    # === Multi-Platform RTMP ===
+    rtmp_proxy_enabled: bool = False  # Use NGINX RTMP proxy for multi-platform
+    rtmp_proxy_url: str = "rtmp://rtmp-proxy:1935/live"
+    twitch_stream_key: str = ""
+    kick_stream_key: str = ""
 
     # YouTube Streaming
     youtube_stream_key: str = ""

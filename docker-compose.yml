@@ -16,6 +16,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT=http://minio:9000
+      - MUSICGEN_API_URL=http://musicgen:8001
+      - STABLE_DIFFUSION_URL=http://comfyui:7860
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,6 +47,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT=http://minio:9000
+      - MUSICGEN_API_URL=http://musicgen:8001
+      - STABLE_DIFFUSION_URL=http://comfyui:7860
     depends_on:
       - api
       - redis
@@ -70,6 +74,57 @@ services:
     networks:
       - sonicforge
 
+  # === AI Music Generation (MusicGen / AudioCraft) ===
+
+  musicgen:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.musicgen
+    container_name: sonicforge-musicgen
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      - MUSICGEN_MODEL_VERSION=${MUSICGEN_MODEL_VERSION:-facebook/musicgen-stereo-large}
+      - MUSICGEN_PORT=8001
+    volumes:
+      - musicgen-models:/root/.cache/huggingface
+      - track-data:/data/tracks
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - sonicforge
+
+  # === AI Visual Generation (ComfyUI + Stable Diffusion + AnimateDiff) ===
+
+  comfyui:
+    image: ghcr.io/ai-dock/comfyui:latest
+    container_name: sonicforge-comfyui
+    ports:
+      - "7860:7860"
+    env_file: .env
+    environment:
+      - CLI_ARGS=--listen 0.0.0.0 --port 7860
+    volumes:
+      - comfyui-models:/opt/ComfyUI/models
+      - comfyui-output:/opt/ComfyUI/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - sonicforge
+
   # === Streaming Engine ===
 
   stream-engine:
@@ -80,10 +135,26 @@ services:
     env_file: .env
     environment:
       - HEALTH_CHECK_URL=http://api:8000/health
+      - API_URL=http://api:8000
     depends_on:
       - api
     volumes:
       - track-data:/data/tracks
+    restart: unless-stopped
+    networks:
+      - sonicforge
+
+  # === NGINX RTMP Proxy (Multi-Platform Streaming) ===
+
+  rtmp-proxy:
+    image: tiangolo/nginx-rtmp:latest
+    container_name: sonicforge-rtmp-proxy
+    ports:
+      - "1935:1935"
+    volumes:
+      - ./streaming/nginx-rtmp.conf:/etc/nginx/nginx.conf:ro
+    profiles:
+      - multiplatform
     restart: unless-stopped
     networks:
       - sonicforge
@@ -201,6 +272,9 @@ volumes:
   prometheus-data:
   grafana-data:
   track-data:
+  musicgen-models:
+  comfyui-models:
+  comfyui-output:
 
 networks:
   sonicforge:
