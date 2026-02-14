@@ -211,12 +211,13 @@ class ProducerAgent(BaseAgent):
         return b"\xff\xfb\x90\x00" + b"\x00" * 417
 
     def _select_engine(self, concept: dict, variant_index: int) -> str:
-        """Select the best generation engine with priority-based rotation."""
+        """Select the best generation engine — Udio is the primary engine."""
         engines = []
-        if settings.suno_api_key:
-            engines.append("suno")
+        # Udio first — primary engine
         if settings.udio_api_key:
             engines.append("udio")
+        if settings.suno_api_key:
+            engines.append("suno")
         if settings.elevenlabs_api_key:
             engines.append("elevenlabs")
 
