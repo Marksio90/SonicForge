@@ -32,6 +32,8 @@ async def test_list_genres():
     assert "drum_and_bass" in data
     assert "house_deep" in data
     assert "ambient" in data
+    # Verify new weight field is present in genre profiles
+    assert "weight" in data["drum_and_bass"]
 
 
 @pytest.mark.asyncio

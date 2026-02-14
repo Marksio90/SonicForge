@@ -2,7 +2,8 @@ import json
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
-from ..core.config import Genre, get_settings
+from ..agents.base import get_shared_redis
+from ..core.config import GENRE_PROFILES, Genre, get_settings
 from ..schemas.analytics import (
     AgentStatusResponse,
     AnalyticsSnapshotResponse,
@@ -22,8 +23,6 @@ from ..schemas.track import (
     TrackConceptRequest,
     TrackConceptResponse,
     TrackEvaluation,
-    TrackGenerateRequest,
-    TrackGenerateResponse,
 )
 from ..services.orchestrator import Orchestrator
 
@@ -42,10 +41,10 @@ async def run_pipeline(
     genre: str | None = None,
     energy: int | None = Query(None, ge=1, le=5),
 ):
-    """Trigger the full production pipeline (concept → generate → evaluate → queue)."""
-    from ..services.tasks import run_full_pipeline
+    """Trigger the full production pipeline (concept -> generate -> evaluate -> queue)."""
+    from ..services.tasks import run_pipeline_task
 
-    task = run_full_pipeline.delay(genre=genre, energy=energy)
+    task = run_pipeline_task.delay(genre=genre, energy=energy)
     return {"task_id": task.id, "status": "started", "genre": genre}
 
 
@@ -65,9 +64,9 @@ async def generate_batch(
     genre: str | None = None,
 ):
     """Generate a batch of tracks asynchronously."""
-    from ..services.tasks import generate_batch as generate_batch_task
+    from ..services.tasks import batch_generate_task
 
-    task = generate_batch_task.delay(count=count, genre=genre)
+    task = batch_generate_task.delay(count=count, genre=genre)
     return {"task_id": task.id, "status": "started", "count": count}
 
 
@@ -212,23 +211,27 @@ async def daily_report():
 @router.get("/agents/status", tags=["agents"])
 async def agent_statuses():
     """Get status of all agents."""
-    return await orchestrator.get_all_agent_statuses()
+    return orchestrator.get_agent_statuses()
 
 
 @router.get("/agents/activity", tags=["agents"])
 async def agent_activity(limit: int = Query(50, ge=1, le=200)):
     """Get recent agent activity log."""
-    return await orchestrator.get_activity_log(limit=limit)
+    redis = get_shared_redis()
+    activities = redis.lrange("agent:activity_log", 0, limit - 1)
+    return [json.loads(a) for a in activities]
 
 
 @router.get("/dashboard/overview", response_model=DashboardOverview, tags=["dashboard"])
 async def dashboard_overview():
     """Get complete dashboard overview."""
     stream_status = orchestrator.stream_master.get_status()
-    agents = await orchestrator.get_all_agent_statuses()
-    recent_activity = await orchestrator.get_activity_log(limit=10)
+    agents = orchestrator.get_agent_statuses()
 
-    # Get recent analytics
+    redis = get_shared_redis()
+    recent_activity = redis.lrange("agent:activity_log", 0, 9)
+    recent_tracks = [json.loads(a) for a in recent_activity]
+
     analytics_data = {}
     try:
         analytics_data = await orchestrator.analytics.run({"type": "snapshot"})
@@ -240,7 +243,7 @@ async def dashboard_overview():
         current_track=stream_status.get("current_track"),
         queue_length=stream_status.get("queue_length", 0),
         agents=[AgentStatusResponse(**a) for a in agents],
-        recent_tracks=recent_activity,
+        recent_tracks=recent_tracks,
         analytics=analytics_data,
     )
 
@@ -251,8 +254,6 @@ async def dashboard_overview():
 @router.get("/genres", tags=["genres"])
 async def list_genres():
     """List all available genres with their profiles."""
-    from ..core.config import GENRE_PROFILES
-
     return {
         genre.value: profile
         for genre, profile in GENRE_PROFILES.items()

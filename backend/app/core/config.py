@@ -25,25 +25,80 @@ class Genre(str, Enum):
 
 
 GENRE_PROFILES = {
-    Genre.DRUM_AND_BASS: {"bpm_range": (170, 180), "energy": "high", "visual_theme": "cyberpunk_neon_fractals"},
-    Genre.LIQUID_DNB: {"bpm_range": (172, 176), "energy": "medium", "visual_theme": "flowing_liquid_colors"},
-    Genre.DUBSTEP_MELODIC: {"bpm_range": (138, 142), "energy": "high", "visual_theme": "glitch_art"},
-    Genre.HOUSE_DEEP: {"bpm_range": (120, 124), "energy": "low", "visual_theme": "warm_geometric_shapes"},
-    Genre.HOUSE_PROGRESSIVE: {"bpm_range": (124, 128), "energy": "medium", "visual_theme": "evolving_patterns"},
-    Genre.TRANCE_UPLIFTING: {"bpm_range": (136, 142), "energy": "high", "visual_theme": "cosmic_landscapes"},
-    Genre.TRANCE_PSY: {"bpm_range": (140, 148), "energy": "high", "visual_theme": "psychedelic_fractals"},
-    Genre.TECHNO_MELODIC: {"bpm_range": (124, 130), "energy": "medium", "visual_theme": "minimal_dark_geometry"},
-    Genre.BREAKBEAT: {"bpm_range": (130, 140), "energy": "medium", "visual_theme": "retro_breakbeat_vhs"},
-    Genre.AMBIENT: {"bpm_range": (60, 90), "energy": "low", "visual_theme": "ethereal_nature_scapes"},
-    Genre.DOWNTEMPO: {"bpm_range": (80, 110), "energy": "low", "visual_theme": "dreamy_slow_motion"},
+    Genre.DRUM_AND_BASS: {
+        "bpm_range": (170, 180),
+        "energy": "high",
+        "visual_theme": "cyberpunk_neon_fractals",
+        "weight": 1.2,
+    },
+    Genre.LIQUID_DNB: {
+        "bpm_range": (172, 176),
+        "energy": "medium",
+        "visual_theme": "flowing_liquid_colors",
+        "weight": 1.0,
+    },
+    Genre.DUBSTEP_MELODIC: {
+        "bpm_range": (138, 142),
+        "energy": "high",
+        "visual_theme": "glitch_art",
+        "weight": 1.1,
+    },
+    Genre.HOUSE_DEEP: {
+        "bpm_range": (120, 124),
+        "energy": "low",
+        "visual_theme": "warm_geometric_shapes",
+        "weight": 1.0,
+    },
+    Genre.HOUSE_PROGRESSIVE: {
+        "bpm_range": (124, 128),
+        "energy": "medium",
+        "visual_theme": "evolving_patterns",
+        "weight": 1.1,
+    },
+    Genre.TRANCE_UPLIFTING: {
+        "bpm_range": (136, 142),
+        "energy": "high",
+        "visual_theme": "cosmic_landscapes",
+        "weight": 1.15,
+    },
+    Genre.TRANCE_PSY: {
+        "bpm_range": (140, 148),
+        "energy": "high",
+        "visual_theme": "psychedelic_fractals",
+        "weight": 1.0,
+    },
+    Genre.TECHNO_MELODIC: {
+        "bpm_range": (124, 130),
+        "energy": "medium",
+        "visual_theme": "minimal_dark_geometry",
+        "weight": 1.15,
+    },
+    Genre.BREAKBEAT: {
+        "bpm_range": (130, 140),
+        "energy": "medium",
+        "visual_theme": "retro_breakbeat_vhs",
+        "weight": 0.9,
+    },
+    Genre.AMBIENT: {
+        "bpm_range": (60, 90),
+        "energy": "low",
+        "visual_theme": "ethereal_nature_scapes",
+        "weight": 0.8,
+    },
+    Genre.DOWNTEMPO: {
+        "bpm_range": (80, 110),
+        "energy": "low",
+        "visual_theme": "dreamy_slow_motion",
+        "weight": 0.85,
+    },
 }
 
-# Time-of-day energy mapping for contextual music
+# Time-of-day energy mapping for contextual music scheduling
 TIME_ENERGY_MAP = {
     # hour_range: (preferred_genres, energy_level)
     (6, 9): ([Genre.AMBIENT, Genre.DOWNTEMPO], "low"),
-    (9, 12): ([Genre.HOUSE_DEEP, Genre.LIQUID_DNB], "low-medium"),
-    (12, 15): ([Genre.HOUSE_PROGRESSIVE, Genre.BREAKBEAT], "medium"),
+    (9, 12): ([Genre.HOUSE_DEEP, Genre.LIQUID_DNB, Genre.DOWNTEMPO], "low-medium"),
+    (12, 15): ([Genre.HOUSE_PROGRESSIVE, Genre.BREAKBEAT, Genre.TECHNO_MELODIC], "medium"),
     (15, 18): ([Genre.HOUSE_PROGRESSIVE, Genre.TECHNO_MELODIC, Genre.TRANCE_UPLIFTING], "medium-high"),
     (18, 21): ([Genre.DRUM_AND_BASS, Genre.TRANCE_UPLIFTING, Genre.TRANCE_PSY], "high"),
     (21, 0): ([Genre.DUBSTEP_MELODIC, Genre.TECHNO_MELODIC, Genre.DRUM_AND_BASS], "high"),
@@ -57,7 +112,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "SonicForge"
-    app_version: str = "0.1.0"
+    app_version: str = "1.0.0"
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = True
     secret_key: str = "change-me-in-production"
@@ -69,9 +124,13 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://sonicforge:sonicforge@localhost:5432/sonicforge"
     database_url_sync: str = "postgresql://sonicforge:sonicforge@localhost:5432/sonicforge"
+    db_pool_size: int = 30
+    db_max_overflow: int = 20
+    db_pool_recycle: int = 1800
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 50
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
@@ -89,11 +148,14 @@ class Settings(BaseSettings):
     udio_api_url: str = "https://api.udio.com/v1"
     elevenlabs_api_key: str = ""
 
-    # LLM APIs
-    anthropic_api_key: str = ""
+    # LLM APIs — OpenAI is the primary provider for all LLM operations
     openai_api_key: str = ""
-    llm_provider: str = "anthropic"  # "anthropic" or "openai"
-    llm_model: str = "claude-sonnet-4-5-20250929"
+    anthropic_api_key: str = ""  # legacy fallback only
+    llm_provider: str = "openai"  # "openai" (primary) or "anthropic" (legacy fallback)
+    llm_model: str = "gpt-4o"  # primary model for prompt crafting
+    llm_model_fast: str = "gpt-4o-mini"  # fast model for lightweight tasks
+    llm_temperature: float = 0.85  # creativity level for music prompt generation
+    llm_max_retries: int = 3  # retry count for LLM API calls
 
     # YouTube Streaming
     youtube_stream_key: str = ""
@@ -102,8 +164,8 @@ class Settings(BaseSettings):
     youtube_channel_id: str = ""
 
     # Streaming
-    stream_bitrate_video: str = "4500k"
-    stream_bitrate_audio: str = "192k"
+    stream_bitrate_video: str = "6000k"
+    stream_bitrate_audio: str = "320k"
     stream_resolution: str = "1920x1080"
     stream_fps: int = 30
     crossfade_duration: int = 12  # seconds

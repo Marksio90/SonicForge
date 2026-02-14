@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import httpx
 import structlog
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import get_settings
 from .base import BaseAgent
@@ -10,9 +11,22 @@ from .base import BaseAgent
 settings = get_settings()
 logger = structlog.get_logger(__name__)
 
+# Shared httpx client for connection pooling
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5, read=15, write=10, pool=5),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _http_client
+
 
 class AnalyticsAgent(BaseAgent):
-    """Collects and analyzes streaming analytics, viewer data, and track performance."""
+    """Collects and analyzes streaming analytics with connection pooling and caching."""
 
     def __init__(self):
         super().__init__("analytics")
@@ -44,21 +58,17 @@ class AnalyticsAgent(BaseAgent):
             "new_subscribers": 0,
         }
 
-        # Fetch YouTube Analytics if API key configured
         if settings.youtube_api_key:
             yt_data = await self._fetch_youtube_analytics()
             snapshot.update(yt_data)
 
-        # Get current track info
         current_track = self.redis.hgetall("stream:current_track")
         snapshot["current_track"] = current_track
         snapshot["current_genre"] = current_track.get("genre", "unknown")
 
-        # Store snapshot in Redis for real-time dashboard
         self.redis.lpush("analytics:snapshots", json.dumps(snapshot))
-        self.redis.ltrim("analytics:snapshots", 0, 8639)  # ~24h at 10s intervals
+        self.redis.ltrim("analytics:snapshots", 0, 8639)
 
-        # Update running counters
         self.redis.hincrby("analytics:daily", "total_snapshots", 1)
 
         self.logger.info(
@@ -70,7 +80,6 @@ class AnalyticsAgent(BaseAgent):
 
     async def get_track_performance(self, track_id: str) -> dict:
         """Get performance metrics for a specific track."""
-        # Aggregate from play history in Redis
         history = self.redis.lrange("stream:history", 0, -1)
         track_plays = []
 
@@ -91,7 +100,18 @@ class AnalyticsAgent(BaseAgent):
         }
 
     async def analyze_genre_performance(self) -> dict:
-        """Analyze performance metrics by genre."""
+        """Analyze performance metrics by genre with cached aggregation."""
+        # Check cache first
+        cached = self.redis.get("analytics:genre_perf_cache")
+        if cached:
+            cache_data = json.loads(cached)
+            cache_age = (
+                datetime.now(timezone.utc)
+                - datetime.fromisoformat(cache_data.get("cached_at", "2000-01-01T00:00:00+00:00"))
+            ).total_seconds()
+            if cache_age < 300:  # 5 minute cache
+                return cache_data["data"]
+
         snapshots = self.redis.lrange("analytics:snapshots", 0, -1)
 
         genre_data: dict[str, list] = {}
@@ -106,13 +126,24 @@ class AnalyticsAgent(BaseAgent):
         results = {}
         for genre, viewer_counts in genre_data.items():
             if viewer_counts:
+                sorted_counts = sorted(viewer_counts)
                 results[genre] = {
                     "avg_viewers": sum(viewer_counts) / len(viewer_counts),
                     "peak_viewers": max(viewer_counts),
+                    "median_viewers": sorted_counts[len(sorted_counts) // 2],
                     "sample_count": len(viewer_counts),
                 }
 
-        return {"genre_performance": results}
+        result = {"genre_performance": results}
+
+        # Cache the result
+        self.redis.setex(
+            "analytics:genre_perf_cache",
+            300,
+            json.dumps({"data": result, "cached_at": datetime.now(timezone.utc).isoformat()}),
+        )
+
+        return result
 
     async def generate_daily_report(self) -> dict:
         """Generate a daily analytics report."""
@@ -135,7 +166,6 @@ class AnalyticsAgent(BaseAgent):
             "genre_breakdown": (await self.analyze_genre_performance()).get("genre_performance", {}),
         }
 
-        # Send to Telegram if configured
         if settings.telegram_bot_token:
             await self._send_telegram_report(report)
 
@@ -150,27 +180,28 @@ class AnalyticsAgent(BaseAgent):
             "recommendation": "Based on collected data",
         }
 
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=5))
     async def _fetch_youtube_analytics(self) -> dict:
-        """Fetch real-time analytics from YouTube Live API."""
+        """Fetch real-time analytics from YouTube Live API with retry."""
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://www.googleapis.com/youtube/v3/liveBroadcasts",
-                    params={
-                        "part": "snippet,status,statistics",
-                        "broadcastStatus": "active",
-                        "key": settings.youtube_api_key,
-                    },
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get("items", [])
-                    if items:
-                        stats = items[0].get("statistics", {})
-                        return {
-                            "concurrent_viewers": int(stats.get("concurrentViewers", 0)),
-                            "total_views": int(stats.get("totalChatMessages", 0)),
-                        }
+            client = _get_http_client()
+            response = await client.get(
+                "https://www.googleapis.com/youtube/v3/liveBroadcasts",
+                params={
+                    "part": "snippet,status,statistics",
+                    "broadcastStatus": "active",
+                    "key": settings.youtube_api_key,
+                },
+            )
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get("items", [])
+                if items:
+                    stats = items[0].get("statistics", {})
+                    return {
+                        "concurrent_viewers": int(stats.get("concurrentViewers", 0)),
+                        "total_views": int(stats.get("totalChatMessages", 0)),
+                    }
         except Exception as e:
             self.logger.warning("youtube_api_error", error=str(e))
 
@@ -182,21 +213,21 @@ class AnalyticsAgent(BaseAgent):
             return
 
         message = (
-            f"📊 SonicForge Daily Report — {report['date']}\n\n"
-            f"🎵 Tracks played: {report['tracks_played']}\n"
-            f"👥 Peak viewers: {report['peak_viewers']}\n"
-            f"📈 Avg viewers: {report['avg_viewers']:.0f}\n"
+            f"SonicForge Daily Report -- {report['date']}\n\n"
+            f"Tracks played: {report['tracks_played']}\n"
+            f"Peak viewers: {report['peak_viewers']}\n"
+            f"Avg viewers: {report['avg_viewers']:.0f}\n"
         )
 
         try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                    json={
-                        "chat_id": settings.telegram_chat_id,
-                        "text": message,
-                        "parse_mode": "HTML",
-                    },
-                )
+            client = _get_http_client()
+            await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                json={
+                    "chat_id": settings.telegram_chat_id,
+                    "text": message,
+                    "parse_mode": "HTML",
+                },
+            )
         except Exception as e:
             self.logger.warning("telegram_send_failed", error=str(e))

@@ -1,7 +1,6 @@
-import uuid
-
 import httpx
 import structlog
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import GENRE_PROFILES, Genre, get_settings
 from ..core.storage import upload_visual
@@ -9,6 +8,20 @@ from .base import BaseAgent
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
+
+# Shared httpx client for connection pooling
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10, read=60, write=10, pool=10),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _http_client
+
 
 # Visual style definitions per genre
 VISUAL_STYLES = {
@@ -71,7 +84,7 @@ VISUAL_STYLES = {
 
 
 class VisualAgent(BaseAgent):
-    """Generates audio-reactive visualizations and graphics for the stream."""
+    """Generates audio-reactive visualizations and graphics using OpenAI DALL-E."""
 
     def __init__(self):
         super().__init__("visual")
@@ -121,21 +134,24 @@ class VisualAgent(BaseAgent):
 
         style = VISUAL_STYLES.get(visual_theme, VISUAL_STYLES["evolving_patterns"])
 
-        # Generate shader configuration
+        # BPM-adaptive reactivity parameters
+        bpm_val = bpm or 128
+        bass_intensity = min(1.0, 0.6 + (bpm_val - 100) / 200)
+        treble_intensity = min(1.0, 0.4 + (bpm_val - 100) / 250)
+
         shader_config = {
             "theme": visual_theme,
             "colors": style["colors"],
             "style_prompt": style["style"],
             "animation_type": style["animation"],
-            "bpm_sync": bpm or 128,
+            "bpm_sync": bpm_val,
             "audio_reactivity": {
-                "bass": {"intensity": 0.8, "smoothing": 0.3},
+                "bass": {"intensity": round(bass_intensity, 2), "smoothing": 0.3},
                 "mid": {"intensity": 0.5, "smoothing": 0.5},
-                "treble": {"intensity": 0.6, "smoothing": 0.4},
+                "treble": {"intensity": round(treble_intensity, 2), "smoothing": 0.4},
             },
         }
 
-        # Generate overlay configuration
         overlay_config = {
             "track_title": title or "SonicForge Radio",
             "bpm": bpm,
@@ -159,7 +175,7 @@ class VisualAgent(BaseAgent):
         }
 
     async def generate_thumbnail(self, title: str, genre: str | None = None) -> dict:
-        """Generate a YouTube thumbnail for the stream."""
+        """Generate a YouTube thumbnail using OpenAI DALL-E."""
         visual_theme = "evolving_patterns"
         if genre:
             try:
@@ -170,11 +186,9 @@ class VisualAgent(BaseAgent):
 
         style = VISUAL_STYLES.get(visual_theme, VISUAL_STYLES["evolving_patterns"])
 
-        # If DALL-E/OpenAI is configured, generate via API
         if settings.openai_api_key:
             return await self._generate_ai_thumbnail(title, style)
 
-        # Return thumbnail specification for manual/template generation
         return {
             "title": title,
             "visual_theme": visual_theme,
@@ -198,13 +212,13 @@ class VisualAgent(BaseAgent):
             "elements": [
                 {
                     "type": "text",
-                    "content": f"♪ {title or 'SonicForge Radio'}",
+                    "content": f"{title or 'SonicForge Radio'}",
                     "position": {"x": 40, "y": 980},
                     "style": {"font_size": 28, "color": "#ffffff", "shadow": True},
                 },
                 {
                     "type": "badge",
-                    "content": f"AI Generated • {genre or 'Electronic'}",
+                    "content": f"AI Generated | {genre or 'Electronic'}",
                     "position": {"x": 40, "y": 1020},
                     "style": {"font_size": 16, "color": "#aaaaaa"},
                 },
@@ -237,34 +251,35 @@ class VisualAgent(BaseAgent):
 
         return overlay
 
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=10))
     async def _generate_ai_thumbnail(self, title: str, style: dict) -> dict:
-        """Generate thumbnail using DALL-E API."""
+        """Generate thumbnail using OpenAI DALL-E 3 with retry."""
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    "https://api.openai.com/v1/images/generations",
-                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                    json={
-                        "model": "dall-e-3",
-                        "prompt": (
-                            f"Abstract digital art for music streaming thumbnail: {style['style']}. "
-                            f"No text in image. Widescreen 16:9 format. Vibrant, professional quality."
-                        ),
-                        "size": "1792x1024",
-                        "quality": "standard",
-                        "n": 1,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                image_url = data["data"][0]["url"]
+            client = _get_http_client()
+            response = await client.post(
+                "https://api.openai.com/v1/images/generations",
+                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                json={
+                    "model": "dall-e-3",
+                    "prompt": (
+                        f"Abstract digital art for music streaming thumbnail: {style['style']}. "
+                        f"No text in image. Widescreen 16:9 format. Vibrant, professional quality."
+                    ),
+                    "size": "1792x1024",
+                    "quality": "hd",
+                    "n": 1,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            image_url = data["data"][0]["url"]
 
-                return {
-                    "title": title,
-                    "image_url": image_url,
-                    "generated": True,
-                    "style": style["style"],
-                }
+            return {
+                "title": title,
+                "image_url": image_url,
+                "generated": True,
+                "style": style["style"],
+            }
         except Exception as e:
             self.logger.error("thumbnail_generation_failed", error=str(e))
             return {

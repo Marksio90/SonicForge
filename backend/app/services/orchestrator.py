@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -18,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 
 class Orchestrator:
-    """Central brain of SonicForge — coordinates all agents through the production pipeline."""
+    """Central pipeline orchestrator coordinating all agents with parallel execution."""
 
     def __init__(self):
         self.composer = ComposerAgent()
@@ -30,161 +32,167 @@ class Orchestrator:
         self.visual = VisualAgent()
         self.logger = logger.bind(component="orchestrator")
 
-    async def run_full_pipeline(self, genre: str | None = None, energy: int | None = None) -> dict:
-        """Run the complete production pipeline: concept → generate → evaluate → schedule."""
+    async def run_full_pipeline(
+        self, genre: str | None = None, energy: int | None = None
+    ) -> dict:
+        """Run the complete production pipeline: compose → produce → evaluate → visual."""
         pipeline_id = str(uuid.uuid4())
+        start_time = time.monotonic()
         self.logger.info("pipeline_started", pipeline_id=pipeline_id, genre=genre)
 
-        # Step 1: Create concept
-        concept = await self.composer.run({
-            "type": "create_concept",
-            "genre": genre,
-            "energy": energy,
-        })
-        self.logger.info("concept_created", pipeline_id=pipeline_id, genre=concept["genre"])
+        try:
+            # Step 1: Compose — create concept
+            concept = await self.composer.run({
+                "type": "create_concept",
+                "genre": genre,
+                "energy": energy,
+            })
 
-        # Step 2: Generate track variants
-        generation_result = await self.producer.run({
-            "type": "generate",
-            "concept": concept,
-            "variants": settings.variants_per_concept,
-        })
-        self.logger.info(
-            "variants_generated",
-            pipeline_id=pipeline_id,
-            count=len(generation_result["variants"]),
-        )
+            # Step 2: Produce — generate variants in parallel (handled inside agent)
+            generation = await self.producer.run({
+                "type": "generate",
+                "concept": concept,
+                "variants": settings.variants_per_concept,
+            })
 
-        # Step 3: Evaluate all variants
-        evaluation = await self.critic.run({
-            "type": "evaluate_batch",
-            "variants": generation_result["variants"],
-        })
+            # Step 3: Evaluate — parallel quality assessment of all variants
+            evaluation = await self.critic.run({
+                "type": "evaluate_batch",
+                "variants": generation["variants"],
+            })
 
-        best = evaluation.get("best_approved") or evaluation.get("best")
-        if not best:
-            self.logger.warning("no_approved_tracks", pipeline_id=pipeline_id)
-            # Retry with new concept
-            if settings.max_generation_attempts > 1:
-                return await self._retry_pipeline(pipeline_id, genre, energy, attempt=2)
-            return {"pipeline_id": pipeline_id, "status": "failed", "reason": "no_approved_tracks"}
+            best_track = evaluation.get("best_approved") or evaluation.get("best")
+            if not best_track:
+                self.logger.error("pipeline_failed_no_approved_track", pipeline_id=pipeline_id)
+                return {
+                    "pipeline_id": pipeline_id,
+                    "status": "failed",
+                    "reason": "no_tracks_approved",
+                    "evaluation": evaluation,
+                }
 
-        self.logger.info(
-            "track_approved",
-            pipeline_id=pipeline_id,
-            track_id=best["track_id"],
-            score=best["overall_score"],
-        )
+            # Step 4: Visual + Overlay generation — run in parallel
+            visual_task = self.visual.run({
+                "type": "generate_visual",
+                "track_id": best_track["track_id"],
+                "genre": concept.get("genre"),
+                "bpm": concept.get("bpm"),
+                "title": concept.get("genre", "").replace("_", " ").title(),
+            })
 
-        # Step 4: Generate visuals
-        visual_config = await self.visual.run({
-            "type": "generate_visual",
-            "track_id": best["track_id"],
-            "genre": concept["genre"],
-            "bpm": concept["bpm"],
-            "title": self._generate_track_title(concept),
-        })
+            overlay_task = self.visual.run({
+                "type": "generate_overlay",
+                "track_id": best_track["track_id"],
+                "title": concept.get("genre", "").replace("_", " ").title(),
+                "bpm": concept.get("bpm"),
+                "key": concept.get("key"),
+                "genre": concept.get("genre"),
+                "score": best_track.get("overall_score"),
+            })
 
-        # Step 5: Generate overlay
-        overlay = await self.visual.run({
-            "type": "generate_overlay",
-            "track_id": best["track_id"],
-            "title": self._generate_track_title(concept),
-            "bpm": concept["bpm"],
-            "key": concept["key"],
-            "genre": concept["genre"],
-            "score": best["overall_score"],
-        })
+            visual_result, overlay_result = await asyncio.gather(
+                visual_task, overlay_task
+            )
 
-        # Step 6: Add to stream queue
-        track_data = {
-            "track_id": best["track_id"],
-            "pipeline_id": pipeline_id,
-            "title": self._generate_track_title(concept),
-            "genre": concept["genre"],
-            "bpm": concept["bpm"],
-            "key": concept["key"],
-            "energy": concept["energy"],
-            "score": best["overall_score"],
-            "visual_config": visual_config,
-            "overlay": overlay,
-            "s3_key": best.get("s3_key", generation_result["variants"][0].get("s3_key", "")),
-            "queued_at": datetime.now(timezone.utc).isoformat(),
-        }
+            # Step 5: Add to stream queue
+            queue_item = {
+                "track_id": best_track["track_id"],
+                "genre": concept.get("genre"),
+                "bpm": concept.get("bpm"),
+                "key": concept.get("key"),
+                "title": concept.get("genre", "").replace("_", " ").title(),
+                "score": best_track.get("overall_score"),
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+            }
+            from ..agents.base import get_shared_redis
+            redis = get_shared_redis()
+            redis.rpush("stream:queue", json.dumps(queue_item))
 
-        self.stream_master.redis.rpush("stream:queue", json.dumps(track_data))
+            duration_ms = (time.monotonic() - start_time) * 1000
 
-        self.logger.info("track_queued", pipeline_id=pipeline_id, track_id=best["track_id"])
+            result = {
+                "pipeline_id": pipeline_id,
+                "status": "success",
+                "concept": concept,
+                "generation": {
+                    "concept_id": generation["concept_id"],
+                    "variants_count": len(generation["variants"]),
+                },
+                "evaluation": {
+                    "best_track_id": best_track["track_id"],
+                    "best_score": best_track.get("overall_score"),
+                    "approved_count": evaluation.get("approved_count", 0),
+                    "total_evaluated": evaluation.get("total_count", 0),
+                },
+                "visual": visual_result,
+                "overlay": overlay_result,
+                "duration_ms": round(duration_ms, 1),
+            }
+
+            self.logger.info(
+                "pipeline_completed",
+                pipeline_id=pipeline_id,
+                duration_ms=round(duration_ms, 1),
+                best_score=best_track.get("overall_score"),
+            )
+
+            return result
+
+        except Exception as e:
+            duration_ms = (time.monotonic() - start_time) * 1000
+            self.logger.error(
+                "pipeline_failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+                duration_ms=round(duration_ms, 1),
+            )
+            return {
+                "pipeline_id": pipeline_id,
+                "status": "error",
+                "error": str(e),
+                "duration_ms": round(duration_ms, 1),
+            }
+
+    async def run_batch_pipeline(self, count: int = 5, genre: str | None = None) -> dict:
+        """Run multiple pipelines in parallel for batch generation."""
+        tasks = [
+            self.run_full_pipeline(genre=genre)
+            for _ in range(count)
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        succeeded = []
+        failed = []
+        for result in results:
+            if isinstance(result, Exception):
+                failed.append(str(result))
+            elif result.get("status") == "success":
+                succeeded.append(result)
+            else:
+                failed.append(result.get("error", "unknown"))
 
         return {
-            "pipeline_id": pipeline_id,
-            "status": "success",
-            "track_id": best["track_id"],
-            "title": track_data["title"],
-            "genre": concept["genre"],
-            "score": best["overall_score"],
-            "concept": concept,
-            "evaluation": best,
+            "total_requested": count,
+            "succeeded": len(succeeded),
+            "failed": len(failed),
+            "results": succeeded,
+            "errors": failed,
         }
 
-    async def _retry_pipeline(
-        self, pipeline_id: str, genre: str | None, energy: int | None, attempt: int
-    ) -> dict:
-        """Retry the pipeline with a fresh concept."""
-        if attempt > settings.max_generation_attempts:
-            return {"pipeline_id": pipeline_id, "status": "failed", "reason": "max_attempts_reached"}
-
-        self.logger.info("pipeline_retry", pipeline_id=pipeline_id, attempt=attempt)
-        return await self.run_full_pipeline(genre=genre, energy=energy)
-
-    async def ensure_buffer(self) -> dict:
-        """Ensure the stream queue has enough tracks."""
-        buffer_status = await self.scheduler.run({"type": "check_buffer"})
-
-        if buffer_status["needs_generation"]:
-            results = []
-            for _ in range(min(buffer_status["deficit"], 5)):
-                schedule = await self.scheduler.run({"type": "schedule_next"})
-                result = await self.run_full_pipeline(
-                    genre=schedule["genre"],
-                    energy=schedule["energy"],
-                )
-                results.append(result)
-            return {"generated": len(results), "results": results}
-
-        return {"generated": 0, "buffer_ok": True}
-
-    async def get_all_agent_statuses(self) -> list[dict]:
+    def get_agent_statuses(self) -> list[dict]:
         """Get status of all agents."""
         agents = [
             self.composer, self.producer, self.critic,
             self.scheduler, self.stream_master, self.analytics, self.visual,
         ]
-        statuses = []
-        for agent in agents:
-            status_data = agent.redis.hgetall(f"agent:status:{agent.name}")
-            statuses.append({
+        return [
+            {
                 "agent": agent.name,
-                "status": status_data.get("status", "idle"),
-                "agent_id": status_data.get("agent_id"),
-                "timestamp": status_data.get("timestamp"),
-            })
-        return statuses
-
-    async def get_activity_log(self, limit: int = 50) -> list[dict]:
-        """Get recent agent activity log."""
-        raw_log = self.composer.redis.lrange("agent:activity_log", 0, limit - 1)
-        return [json.loads(entry) for entry in raw_log]
-
-    def _generate_track_title(self, concept: dict) -> str:
-        """Generate a track title from concept data."""
-        genre_names = {
-            "drum_and_bass": "DnB", "liquid_dnb": "Liquid", "dubstep_melodic": "Melodic Dubstep",
-            "house_deep": "Deep House", "house_progressive": "Progressive House",
-            "trance_uplifting": "Uplifting Trance", "trance_psy": "Psytrance",
-            "techno_melodic": "Melodic Techno", "breakbeat": "Breakbeat",
-            "ambient": "Ambient", "downtempo": "Downtempo",
-        }
-        genre_name = genre_names.get(concept["genre"], concept["genre"])
-        mood = concept.get("mood", "")
-        return f"SonicForge — {genre_name} ({mood.title()} {concept['key']})"
+                "status": agent.status.value,
+                "agent_id": agent.agent_id,
+                "tasks_completed": agent._task_count,
+                "errors": agent._error_count,
+            }
+            for agent in agents
+        ]
