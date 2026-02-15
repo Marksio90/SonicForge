@@ -17,6 +17,14 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     setup_logging()
 
+    # Initialize distributed tracing
+    try:
+        from .core.tracing import setup_tracing, instrument_fastapi
+        setup_tracing()
+        instrument_fastapi(app)
+    except Exception as e:
+        print(f"Tracing initialization failed: {e}")
+
     # Initialize connection pools
     from .core.connection_pool import pool_manager
     await pool_manager.initialize(
