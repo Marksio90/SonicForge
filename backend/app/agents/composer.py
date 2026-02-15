@@ -131,53 +131,62 @@ class ComposerAgent(BaseAgent):
         return concept
 
     async def analyze_trends(self, genre: str | None = None) -> dict:
-        """Analyze current music trends using OpenAI for intelligent trend synthesis."""
-        self.logger.info("analyzing_trends", genre=genre)
+        """Analyze current music trends using OpenAI for intelligent trend synthesis.
+        
+        Cached for 1 hour to reduce API costs.
+        """
+        from ..core.cache import cached
+        
+        @cached(prefix="trend_analysis", ttl=3600)
+        async def _analyze_trends_cached(genre_param: str | None) -> dict:
+            self.logger.info("analyzing_trends", genre=genre_param)
 
-        client = self._get_openai_client()
-        if client:
-            try:
-                response = await client.chat.completions.create(
-                    model=settings.llm_model_fast,
-                    max_tokens=512,
-                    temperature=0.7,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are an expert electronic music trend analyst. "
-                                "Return JSON with keys: trending_bpm (int), "
-                                "trending_keys (list of 3 strings), "
-                                "trending_elements (list of 3 strings), "
-                                "insight (short string)."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Analyze current trends for "
-                                f"{'electronic music' if not genre else genre.replace('_', ' ')} "
-                                f"in 2025. What BPM, keys, and production elements are trending?"
-                            ),
-                        },
-                    ],
-                    response_format={"type": "json_object"},
-                )
-                import json
-                trend_data = json.loads(response.choices[0].message.content)
-                trend_data["source"] = "openai_analysis"
-                trend_data["genre"] = genre
-                return trend_data
-            except Exception as e:
-                self.logger.warning("trend_analysis_llm_failed", error=str(e))
+            client = self._get_openai_client()
+            if client:
+                try:
+                    response = await client.chat.completions.create(
+                        model=settings.llm_model_fast,
+                        max_tokens=512,
+                        temperature=0.7,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are an expert electronic music trend analyst. "
+                                    "Return JSON with keys: trending_bpm (int), "
+                                    "trending_keys (list of 3 strings), "
+                                    "trending_elements (list of 3 strings), "
+                                    "insight (short string)."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"Analyze current trends for "
+                                    f"{'electronic music' if not genre_param else genre_param.replace('_', ' ')} "
+                                    f"in 2025. What BPM, keys, and production elements are trending?"
+                                ),
+                            },
+                        ],
+                        response_format={"type": "json_object"},
+                    )
+                    import json
+                    trend_data = json.loads(response.choices[0].message.content)
+                    trend_data["source"] = "openai_analysis"
+                    trend_data["genre"] = genre_param
+                    return trend_data
+                except Exception as e:
+                    self.logger.warning("trend_analysis_llm_failed", error=str(e))
 
-        return {
-            "trending_bpm": random.randint(120, 180),
-            "trending_keys": random.sample(MUSICAL_KEYS, 3),
-            "trending_elements": ["atmospheric pads", "vocal chops", "rolling bass"],
-            "source": "fallback",
-            "genre": genre,
-        }
+            return {
+                "trending_bpm": random.randint(120, 180),
+                "trending_keys": random.sample(MUSICAL_KEYS, 3),
+                "trending_elements": ["atmospheric pads", "vocal chops", "rolling bass"],
+                "source": "fallback",
+                "genre": genre_param,
+            }
+        
+        return await _analyze_trends_cached(genre)
 
     async def craft_prompt(self, concept: dict) -> dict:
         """Use OpenAI to craft an ultra-detailed generation prompt."""
