@@ -40,12 +40,65 @@ async def run_pipeline(
     background_tasks: BackgroundTasks,
     genre: str | None = None,
     energy: int | None = Query(None, ge=1, le=5),
+    mode: str = Query(default="single", enum=["single", "batch"]),
+    count: int = Query(default=1, ge=1, le=10),
 ):
-    """Trigger the full production pipeline (concept -> generate -> evaluate -> queue)."""
-    from ..services.tasks import run_pipeline_task
+    """Trigger the full production pipeline (concept -> generate -> evaluate -> queue).
+    
+    Args:
+        genre: Music genre
+        energy: Energy level (1-5)
+        mode: 'single' for standard, 'batch' for batch processing
+        count: Number of tracks to generate (batch mode only)
+    """
+    from ..services.tasks import run_pipeline_task, run_batch_pipeline_task
+    from ..core.tracing import tracing
+    
+    with tracing.tracer.start_as_current_span("pipeline_trigger") as span:
+        span.set_attribute("genre", genre or "random")
+        span.set_attribute("mode", mode)
+        span.set_attribute("count", count)
+        
+        if mode == "batch" and count > 1:
+            task = run_batch_pipeline_task.delay(genre=genre, count=count)
+            return {
+                "task_id": task.id,
+                "status": "started",
+                "mode": "batch",
+                "genre": genre,
+                "count": count,
+            }
+        else:
+            task = run_pipeline_task.delay(genre=genre, energy=energy)
+            return {"task_id": task.id, "status": "started", "genre": genre}
 
-    task = run_pipeline_task.delay(genre=genre, energy=energy)
-    return {"task_id": task.id, "status": "started", "genre": genre}
+
+@router.get("/pipeline/benchmark", tags=["pipeline"])
+async def benchmark_generation():
+    """Benchmark optimized MusicGen performance."""
+    from ..services.musicgen_optimized import OptimizedMusicGenEngine
+    from ..core.tracing import tracing
+    
+    with tracing.tracer.start_as_current_span("benchmark") as span:
+        try:
+            engine = OptimizedMusicGenEngine()
+            engine.load_model()
+            
+            result = engine.benchmark(duration=10)
+            
+            span.set_attribute("generation_time", result["generation_time_seconds"])
+            span.set_attribute("speedup_factor", result["speedup_factor"])
+            
+            return {
+                "status": "success",
+                "benchmark": result,
+            }
+        except Exception as e:
+            span.set_attribute("error", str(e))
+            return {
+                "status": "error",
+                "error": str(e),
+            }
 
 
 @router.post("/pipeline/run-sync", tags=["pipeline"])
