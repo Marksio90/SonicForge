@@ -8,6 +8,8 @@ from slowapi.errors import RateLimitExceeded
 
 from .api.routes import router
 from .api.auth_routes import router as auth_router
+from .api.phase5_routes import router as phase5_router
+from .api.webhook_routes import router as webhook_router
 from .api.websocket import ws_router
 from .core.config import get_settings
 from .core.logging import setup_logging
@@ -47,6 +49,13 @@ async def lifespan(app: FastAPI):
         ensure_buckets()
     except Exception:
         pass  # S3 may not be available in dev
+
+    # Initialize payment service (Phase 5)
+    try:
+        from .features.payments import payment_service
+        await payment_service.initialize()
+    except Exception as e:
+        print(f"Payment service initialization failed: {e}")
 
     yield
 
