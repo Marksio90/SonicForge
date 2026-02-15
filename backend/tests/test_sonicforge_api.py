@@ -455,7 +455,7 @@ class TestSocialSharing:
         response = api_client.get(f"{BASE_URL}/api/v1/share/{share_code}")
         assert response.status_code == 200
         data = response.json()
-        assert "twitter_url" in data or "facebook_url" in data or "urls" in data
+        assert "twitter" in data or "facebook" in data or "direct_link" in data
         print(f"Social URLs retrieved for share code: {share_code}")
 
     def test_get_shared_track(self, api_client):
