@@ -59,7 +59,7 @@ export default function RootLayout({
 }
 
 function Sidebar() {
-  const navItems = [
+  const navItems: Array<{ label: string; href: string; icon: string; highlight?: boolean }> = [
     { label: "Dashboard", href: "/", icon: "⚡" },
     { label: "Live", href: "/live", icon: "🔴", highlight: true },
     { label: "Pipeline", href: "/pipeline", icon: "🔄" },
