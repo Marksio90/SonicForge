@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from .api.routes import router
 from .api.auth_routes import router as auth_router
 from .api.phase5_routes import router as phase5_router
+from .api.analytics_routes import router as analytics_router
 from .api.webhook_routes import router as webhook_router
 from .api.websocket import ws_router
 from .core.config import get_settings
