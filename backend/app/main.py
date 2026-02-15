@@ -125,6 +125,7 @@ app.include_router(phase5_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1/analytics")
 app.include_router(webhook_router, prefix="/api")
 app.include_router(ws_router)
+app.include_router(ws_live_router)
 
 
 @app.get("/", tags=["health"])
