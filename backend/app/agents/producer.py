@@ -25,14 +25,9 @@ _http_client: httpx.AsyncClient | None = None
 
 
 def _get_http_client() -> httpx.AsyncClient:
-    """Lazy-initialize a shared async HTTP client with connection pooling."""
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10, read=300, write=30, pool=10),
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-        )
-    return _http_client
+    """Get HTTP client from connection pool."""
+    from ..core.connection_pool import pool_manager
+    return pool_manager.http_client
 
 
 class MusicGenEngine:
