@@ -12,6 +12,7 @@ from .api.phase5_routes import router as phase5_router
 from .api.analytics_routes import router as analytics_router
 from .api.webhook_routes import router as webhook_router
 from .api.websocket import ws_router
+from .api.websocket_live import ws_router as ws_live_router
 from .core.config import get_settings
 from .core.logging import setup_logging
 from .security.rate_limiter import limiter, rate_limit_exceeded_handler
