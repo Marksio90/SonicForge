@@ -85,10 +85,17 @@ function Sidebar() {
           <a
             key={item.href}
             href={item.href}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-sf-border/50 transition-colors"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+              item.highlight 
+                ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30' 
+                : 'text-gray-400 hover:text-white hover:bg-sf-border/50'
+            }`}
           >
             <span>{item.icon}</span>
             <span>{item.label}</span>
+            {item.highlight && (
+              <span className="ml-auto text-[10px] bg-red-500/20 px-1.5 py-0.5 rounded text-red-400">NEW</span>
+            )}
           </a>
         ))}
       </nav>
