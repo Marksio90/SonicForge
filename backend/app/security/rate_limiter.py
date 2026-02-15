@@ -6,6 +6,7 @@ Implements API rate limiting using SlowAPI with:
 - Per-user rate limiting (authenticated)
 - Per-endpoint rate limiting
 - Custom rate limit exceeded handler
+- Fallback to memory storage when Redis unavailable
 """
 
 from fastapi import Request, Response
@@ -36,11 +37,24 @@ def get_user_identifier(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-# Initialize rate limiter with Redis backend
+# Try to use Redis, fallback to memory storage
+def get_storage_uri() -> str:
+    """Get storage URI for rate limiter."""
+    try:
+        import redis
+        r = redis.Redis.from_url(settings.redis_url, socket_timeout=1)
+        r.ping()
+        return settings.redis_url
+    except Exception:
+        # Fallback to memory storage
+        return "memory://"
+
+
+# Initialize rate limiter with appropriate backend
 limiter = Limiter(
     key_func=get_user_identifier,
     default_limits=["200/minute", "1000/hour"],
-    storage_uri=settings.redis_url,
+    storage_uri=get_storage_uri(),
     strategy="fixed-window",
     headers_enabled=True,
 )
