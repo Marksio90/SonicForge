@@ -1,9 +1,23 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SonicForge — Dashboard",
   description: "AI-Powered 24/7 Music Radio Platform — Control Panel",
+  manifest: "/manifest.json",
+  themeColor: "#6366f1",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "SonicForge",
+  },
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
 };
 
 export default function RootLayout({
@@ -13,11 +27,32 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/icon-192.png" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body className="min-h-screen bg-sf-bg text-gray-200 antialiased">
         <div className="flex min-h-screen">
           <Sidebar />
           <main className="flex-1 p-6 overflow-auto">{children}</main>
         </div>
+        
+        {/* Service Worker Registration */}
+        <Script id="register-sw" strategy="afterInteractive">
+          {`
+            if ('serviceWorker' in navigator) {
+              window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                  .then(registration => {
+                    console.log('SW registered:', registration);
+                  })
+                  .catch(error => {
+                    console.log('SW registration failed:', error);
+                  });
+              });
+            }
+          `}
+        </Script>
       </body>
     </html>
   );
