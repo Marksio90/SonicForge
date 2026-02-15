@@ -127,12 +127,17 @@ async def register(request: Request, data: RegisterRequest):
     import uuid
     user_id = str(uuid.uuid4())
     
+    # Assign admin role if email ends with @sonicforge.ai (for testing)
+    roles = ["user"]
+    if data.email.lower().endswith("@sonicforge.ai"):
+        roles = ["admin", "moderator", "dj", "user"]
+    
     user = User(
         id=user_id,
         email=data.email.lower(),
         username=data.username,
         hashed_password=get_password_hash(data.password),
-        roles=["user"],
+        roles=roles,
     )
     
     _users[user_id] = user
