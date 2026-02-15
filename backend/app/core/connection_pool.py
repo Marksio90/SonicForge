@@ -62,6 +62,7 @@ class ConnectionPoolManager:
                 logger.error("redis_pool_init_failed", error=str(e))
         
         # HTTP client with connection pooling
+        # HTTP/2 disabled - requires optional h2 package
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
             limits=httpx.Limits(
@@ -69,9 +70,9 @@ class ConnectionPoolManager:
                 max_keepalive_connections=50,
                 keepalive_expiry=30.0,
             ),
-            http2=True,
+            http2=False,
         )
-        logger.info("http_client_initialized", max_connections=200, http2=True)
+        logger.info("http_client_initialized", max_connections=200, http2=False)
         
         self._initialized = True
         logger.info("connection_pool_manager_ready")
