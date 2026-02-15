@@ -17,6 +17,17 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     setup_logging()
 
+    # Initialize connection pools
+    from .core.connection_pool import pool_manager
+    await pool_manager.initialize(
+        database_url=settings.database_url,
+        redis_url=settings.redis_url,
+    )
+
+    # Initialize cache
+    from .core.cache import cache
+    await cache.initialize(settings.redis_url)
+
     # Initialize S3 buckets
     try:
         from .core.storage import ensure_buckets
@@ -25,6 +36,9 @@ async def lifespan(app: FastAPI):
         pass  # S3 may not be available in dev
 
     yield
+
+    # Cleanup
+    await pool_manager.close()
 
 
 app = FastAPI(
