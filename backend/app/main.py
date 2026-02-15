@@ -78,4 +78,15 @@ async def root():
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    return {"status": "healthy"}
+    """Enhanced health check with connection pool status."""
+    from .core.connection_pool import pool_manager
+    from .core.cache import cache
+    
+    pool_health = await pool_manager.health_check()
+    
+    return {
+        "status": "healthy",
+        "connections": pool_health,
+        "cache_stats": cache.get_stats(),
+        "pool_stats": pool_manager.get_stats(),
+    }
