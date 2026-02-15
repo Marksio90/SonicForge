@@ -132,6 +132,16 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 - `POST /api/v1/checkout` - Create Stripe checkout
 - `GET /api/v1/can-generate` - Check generation eligibility
 
+### Analytics (Phase 6)
+- `POST /api/v1/analytics/track` - Track event
+- `GET /api/v1/analytics/events` - Query events (admin)
+- `GET /api/v1/analytics/experiments` - List A/B experiments
+- `GET /api/v1/analytics/experiments/{id}/variant` - Get user variant
+- `POST /api/v1/analytics/experiments/{id}/convert` - Track conversion
+- `GET /api/v1/analytics/dashboard` - Dashboard data
+- `GET /api/v1/analytics/metrics/prometheus` - Prometheus format
+- `GET /api/v1/analytics/public/stats` - Public stats
+
 ### Health
 - `GET /health` - Basic health check
 - `GET /health/detailed` - Comprehensive health check
