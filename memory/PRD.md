@@ -2,12 +2,12 @@
 
 ## Overview
 **Product Name:** SonicForge  
-**Version:** 2.0.0  
+**Version:** 2.0.1  
 **Description:** AI-Powered 24/7 Music Radio Platform  
-**Last Updated:** 2026-02-15
+**Last Updated:** 2025-12-15
 
 ## Original Problem Statement
-User requested a comprehensive optimization plan for 10,000,000,000x better performance of the entire project and platform in every possible aspect. The plan covers 115+ optimizations across 6 phases.
+User requested a comprehensive optimization plan for 1,000,000,000x better performance of the entire project and platform in every possible aspect. The plan covers 115+ optimizations across 6 phases.
 
 ## Core Features
 
@@ -33,15 +33,16 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 
 ### Backend Stack
 - **Framework:** FastAPI
-- **Database:** PostgreSQL (metadata), MongoDB (analytics)
-- **Cache:** Redis (multi-layer caching)
-- **Task Queue:** Celery
+- **Database:** PostgreSQL (metadata), MongoDB (analytics) - **MOCKED in preview**
+- **Cache:** Redis (multi-layer caching) - **MOCKED in preview**
+- **Task Queue:** Celery - **MOCKED in preview**
 - **AI Engine:** MusicGen (local GPU or RunPod)
 
 ### Frontend Stack
-- **Framework:** Next.js (React)
+- **Framework:** Next.js 15 (React 19)
 - **Styling:** Tailwind CSS
 - **Charts:** Recharts
+- **Location:** /app/dashboard (symlinked to /app/frontend)
 
 ### Infrastructure
 - **Containerization:** Docker
@@ -57,7 +58,7 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 - Database optimization with indexes
 - Enhanced Celery configuration
 
-### ✅ Phase 2: Scaling & AI (PARTIALLY COMPLETED - 60%)
+### ✅ Phase 2: Scaling & AI (60% COMPLETED)
 - Kubernetes manifests
 - HPA auto-scaling
 - Redis Sentinel (planned)
@@ -73,7 +74,7 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 - JWT authentication with refresh tokens
 - Role-based access control (RBAC)
 - API key management
-- Rate limiting
+- Rate limiting (SlowAPI)
 - Input validation & sanitization
 - Security headers middleware
 - Comprehensive health checks
@@ -96,51 +97,42 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/v1/auth/register` - User registration
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/refresh` - Refresh access token
-- `POST /api/v1/auth/logout` - User logout
-- `GET /api/v1/auth/me` - Get current user info
+### Authentication (/api/v1/auth/)
+- `POST /register` - User registration
+- `POST /login` - User login
+- `POST /refresh` - Refresh access token
+- `POST /logout` - User logout
+- `GET /me` - Get current user info
 
-### Pipeline
-- `POST /api/v1/pipeline/run` - Trigger music generation
-- `GET /api/v1/pipeline/benchmark` - Benchmark MusicGen
+### Voting (/api/v1/)
+- `POST /vote` - Submit track vote
+- `GET /vote/{track_id}` - Get track votes
+- `GET /top-tracks` - Get top rated tracks
 
-### Stream
-- `GET /api/v1/stream/status` - Get stream status
-- `POST /api/v1/stream/control` - Control stream (start/stop/skip)
-- `GET /api/v1/stream/queue` - Get playback queue
+### Recommendations (/api/v1/recommendations/)
+- `GET /personalized` - Personalized recommendations
+- `GET /trending` - Trending tracks
+- `GET /similar/{track_id}` - Similar tracks
 
-### Voting (Phase 5)
-- `POST /api/v1/vote` - Submit track vote
-- `GET /api/v1/vote/{track_id}` - Get track votes
-- `GET /api/v1/top-tracks` - Get top rated tracks
+### Social Sharing (/api/v1/share/)
+- `POST /` - Create share link
+- `GET /{share_code}` - Get social URLs
 
-### Recommendations (Phase 5)
-- `GET /api/v1/recommendations/personalized` - Personalized recommendations
-- `GET /api/v1/recommendations/trending` - Trending tracks
-- `GET /api/v1/recommendations/similar/{track_id}` - Similar tracks
+### Payments (/api/v1/)
+- `GET /plans` - Get subscription plans
+- `GET /subscription` - Get user subscription
+- `POST /checkout` - Create Stripe checkout
+- `GET /can-generate` - Check generation eligibility
 
-### Social Sharing (Phase 5)
-- `POST /api/v1/share` - Create share link
-- `GET /api/v1/share/{share_code}` - Get social URLs
-
-### Payments (Phase 5)
-- `GET /api/v1/plans` - Get subscription plans
-- `GET /api/v1/subscription` - Get user subscription
-- `POST /api/v1/checkout` - Create Stripe checkout
-- `GET /api/v1/can-generate` - Check generation eligibility
-
-### Analytics (Phase 6)
-- `POST /api/v1/analytics/track` - Track event
-- `GET /api/v1/analytics/events` - Query events (admin)
-- `GET /api/v1/analytics/experiments` - List A/B experiments
-- `GET /api/v1/analytics/experiments/{id}/variant` - Get user variant
-- `POST /api/v1/analytics/experiments/{id}/convert` - Track conversion
-- `GET /api/v1/analytics/dashboard` - Dashboard data
-- `GET /api/v1/analytics/metrics/prometheus` - Prometheus format
-- `GET /api/v1/analytics/public/stats` - Public stats
+### Analytics (/api/v1/analytics/)
+- `POST /track` - Track event
+- `GET /events` - Query events (admin)
+- `GET /experiments` - List A/B experiments
+- `GET /experiments/{id}/variant` - Get user variant
+- `POST /experiments/{id}/convert` - Track conversion
+- `GET /dashboard` - Dashboard data
+- `GET /metrics/prometheus` - Prometheus format
+- `GET /public/stats` - Public stats
 
 ### Health
 - `GET /health` - Basic health check
@@ -157,38 +149,45 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 - Input sanitization (SQL, XSS, path traversal prevention)
 - Security headers (CSP, HSTS, X-Frame-Options, etc.)
 
+## Recent Changes (2025-12-15)
+- ✅ Fixed frontend symlink issue (/app/frontend -> /app/dashboard)
+- ✅ Fixed PWA manifest TypeScript error ('any maskable' -> 'maskable')
+- ✅ Fixed offline page missing 'use client' directive
+- ✅ Created PWA icons (icon-192.png, icon-512.png)
+- ✅ Verified all 43 API tests pass (100% success rate)
+- ✅ Verified backend and frontend run correctly internally
+
+## Known Issues
+- ⚠️ External preview URL shows "Preview Unavailable" (Emergent infrastructure issue, not app issue)
+- ⚠️ Redis not available in preview environment (expected)
+- ⚠️ PostgreSQL not available in preview environment (expected)
+- ⚠️ Data persistence is **MOCKED** (uses in-memory Python dictionaries)
+
 ## Prioritized Backlog
 
 ### P0 (Critical)
-- Complete Redis Sentinel HA setup
-- CDN integration for audio delivery
-- End-to-end testing with testing agent
+- ~~Review testing agent report~~ ✅ DONE
+- ~~Fix PWA service worker registration~~ ✅ DONE
 
 ### P1 (High)
+- Complete Redis Sentinel HA setup (for production)
+- CDN integration for audio delivery (for production)
+- Remove hardcoded admin user from auth.py
 - Database migrations for indexes
-- Production deployment preparation
-- Load testing
 
 ### P2 (Medium)
+- Migrate from in-memory dictionaries to PostgreSQL/MongoDB
 - Real-time collaboration features
 - Machine learning model improvements
-- Advanced analytics dashboards
 
 ### P3 (Low)
 - AR visualizer
 - NFT minting
 - Voice commands
 
-## Known Issues
-- Redis not available in preview environment
-- PostgreSQL not available in preview environment
-- PWA service worker registration needs frontend fix
-
-## Next Actions
-1. End-to-end testing with testing agent
-2. Fix PWA service worker registration in dashboard
-3. Deploy to staging with full infrastructure
-4. Production hardening and optimization
+## Test Reports
+- `/app/test_reports/iteration_1.json` - 43/43 tests passed (100%)
+- `/app/backend/tests/test_sonicforge_api.py` - Full API test suite
 
 ## 🎉 MILESTONE: All 6 Major Phases Completed!
 - Phase 1: Foundation ✅
