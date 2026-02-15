@@ -110,6 +110,26 @@ User requested a comprehensive optimization plan for 10,000,000,000x better perf
 - `POST /api/v1/stream/control` - Control stream (start/stop/skip)
 - `GET /api/v1/stream/queue` - Get playback queue
 
+### Voting (Phase 5)
+- `POST /api/v1/vote` - Submit track vote
+- `GET /api/v1/vote/{track_id}` - Get track votes
+- `GET /api/v1/top-tracks` - Get top rated tracks
+
+### Recommendations (Phase 5)
+- `GET /api/v1/recommendations/personalized` - Personalized recommendations
+- `GET /api/v1/recommendations/trending` - Trending tracks
+- `GET /api/v1/recommendations/similar/{track_id}` - Similar tracks
+
+### Social Sharing (Phase 5)
+- `POST /api/v1/share` - Create share link
+- `GET /api/v1/share/{share_code}` - Get social URLs
+
+### Payments (Phase 5)
+- `GET /api/v1/plans` - Get subscription plans
+- `GET /api/v1/subscription` - Get user subscription
+- `POST /api/v1/checkout` - Create Stripe checkout
+- `GET /api/v1/can-generate` - Check generation eligibility
+
 ### Health
 - `GET /health` - Basic health check
 - `GET /health/detailed` - Comprehensive health check
