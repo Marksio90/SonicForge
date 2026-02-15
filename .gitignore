@@ -58,3 +58,7 @@ htmlcov/
 
 # Alembic
 alembic.ini.local
+-e 
+# Environment files
+*.env
+*.env.*
