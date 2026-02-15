@@ -58,6 +58,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Payment service initialization failed: {e}")
 
+    # Initialize analytics and A/B testing (Phase 6)
+    try:
+        from .analytics.ab_testing import setup_default_experiments
+        setup_default_experiments()
+        print("Analytics and A/B testing initialized")
+    except Exception as e:
+        print(f"Analytics initialization failed: {e}")
+
     yield
 
     # Cleanup
