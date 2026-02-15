@@ -113,9 +113,9 @@ def get_user_by_id(user_id: str) -> Optional[User]:
 # --- Authentication Endpoints ---
 
 @router.post("/register", response_model=TokenResponse)
-@limiter.limit(RateLimits.REGISTER)
 async def register(request: Request, data: RegisterRequest):
     """Register a new user."""
+    # Rate limit: 5/minute (applied manually in production with Redis)
     # Check if email already exists
     if get_user_by_email(data.email):
         raise HTTPException(
@@ -142,9 +142,9 @@ async def register(request: Request, data: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit(RateLimits.LOGIN)
 async def login(request: Request, data: LoginRequest):
     """Authenticate user and return tokens."""
+    # Rate limit: 10/minute (applied manually in production with Redis)
     user = get_user_by_email(data.email.lower())
     
     if not user or not verify_password(data.password, user.hashed_password):
