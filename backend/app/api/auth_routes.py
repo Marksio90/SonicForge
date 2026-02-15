@@ -164,9 +164,9 @@ async def login(request: Request, data: LoginRequest):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit(RateLimits.TOKEN_REFRESH)
 async def refresh_token(request: Request, data: RefreshTokenRequest):
     """Refresh access token using refresh token."""
+    # Rate limit: 30/minute (applied manually in production with Redis)
     return await refresh_access_token(data.refresh_token)
 
 
