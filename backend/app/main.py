@@ -111,6 +111,8 @@ app.mount("/metrics", metrics_app)
 # API routes
 app.include_router(router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(phase5_router, prefix="/api/v1")
+app.include_router(webhook_router, prefix="/api")
 app.include_router(ws_router)
 
 
@@ -121,7 +123,10 @@ async def root():
         "version": settings.app_version,
         "status": "operational",
         "description": "AI-Powered 24/7 Music Radio Platform",
-        "security": "Phase 4 - Security & Reliability enabled",
+        "phases": {
+            "phase4": "Security & Reliability - enabled",
+            "phase5": "User Experience & Monetization - enabled",
+        },
     }
 
 
