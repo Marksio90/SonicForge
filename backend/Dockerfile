@@ -2,9 +2,24 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for Python packages and PyAV
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core build tools
+    gcc \
+    g++ \
+    make \
+    pkg-config \
+    python3-dev \
+    # FFmpeg runtime and development libraries (required for PyAV)
     ffmpeg \
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libavfilter-dev \
+    libswscale-dev \
+    libswresample-dev \
+    # Audio processing libraries
     libsndfile1 \
     gcc \
     pkg-config \
