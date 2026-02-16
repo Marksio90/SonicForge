@@ -58,15 +58,12 @@ htmlcov/
 
 # Alembic
 alembic.ini.local
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
+
+# Environment files (but allow .env.example)
+.env
+.env.local
+.env.production
+.env.development
+.env.staging
+!.env.example
+!**/.env.example
