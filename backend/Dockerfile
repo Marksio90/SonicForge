@@ -21,8 +21,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libswresample-dev \
     # Audio processing libraries
     libsndfile1 \
-    libsndfile1-dev \
-    # Clean up to reduce image size
+    gcc \
+    pkg-config \
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libswresample-dev \
+    libavfilter-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
