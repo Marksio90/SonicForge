@@ -115,7 +115,8 @@ class Settings(BaseSettings):
     app_version: str = "2.0.0"
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = True
-    secret_key: str = "change-me-in-production"
+    # SECURITY: Must be set via environment variable - no insecure default
+    secret_key: str
 
     # Server
     host: str = "0.0.0.0"
@@ -221,7 +222,14 @@ class Settings(BaseSettings):
 
     # Dashboard
     dashboard_url: str = "http://localhost:3000"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    # SECURITY: CORS origins should be configured via environment variable
+    # Format: comma-separated list, e.g., "http://localhost:3000,http://localhost:8000"
+    cors_origins: str = "http://localhost:3000,http://localhost:8000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 @lru_cache
