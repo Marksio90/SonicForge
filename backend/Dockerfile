@@ -33,6 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+# First install torch and torchaudio from PyTorch index (torch 2.1.x is not available on PyPI)
+RUN pip install --no-cache-dir \
+    torch==2.1.0 \
+    torchaudio==2.1.0 \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Then install the package dependencies
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[dev]"
 
