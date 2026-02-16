@@ -110,7 +110,7 @@ class TrackConcept(Base):
     mood_description: Mapped[str] = mapped_column(Text)
     structure: Mapped[str] = mapped_column(Text)  # e.g. "8-bar intro → 16-bar build → drop"
     reference_tracks: Mapped[list | None] = mapped_column(ARRAY(String), nullable=True)
-    trend_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    trend_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     prompt: Mapped[str] = mapped_column(Text)
     variants_generated: Mapped[int] = mapped_column(Integer, default=0)
     best_variant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -128,5 +128,5 @@ class PlayHistory(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     concurrent_viewers: Mapped[int] = mapped_column(Integer, default=0)
-    chat_reactions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    chat_reactions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     skip_requested: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, func
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, func, Index
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
@@ -21,7 +21,7 @@ class AnalyticsSnapshot(Base):
     current_genre: Mapped[str | None] = mapped_column(String(50))
     current_track_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     platform: Mapped[str] = mapped_column(String(50), default="youtube")
-    extra_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class GenrePerformance(Base):
@@ -37,6 +37,11 @@ class GenrePerformance(Base):
     tracks_played: Mapped[int] = mapped_column(Integer, default=0)
     avg_track_score: Mapped[float] = mapped_column(Float, default=0.0)
 
+    # Performance indexes
+    __table_args__ = (
+        Index("idx_genre_performance_date_hour", "genre", "date", "hour"),
+    )
+
 
 class ListenerRequest(Base):
     __tablename__ = "listener_requests"
@@ -46,7 +51,12 @@ class ListenerRequest(Base):
     value: Mapped[str] = mapped_column(String(255))
     source: Mapped[str] = mapped_column(String(50))  # chat, poll, superchat
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    fulfilled: Mapped[bool] = mapped_column(default=False)
+    fulfilled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    # Performance indexes
+    __table_args__ = (
+        Index("idx_listener_requests_fulfilled", "fulfilled", "created_at"),
     )

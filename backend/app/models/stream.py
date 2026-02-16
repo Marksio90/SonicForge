@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func, Index
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
@@ -20,7 +20,7 @@ class StreamSession(Base):
     total_viewers_peak: Mapped[int] = mapped_column(Integer, default=0)
     total_watch_hours: Mapped[float] = mapped_column(Float, default=0.0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
-    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -39,6 +39,11 @@ class StreamHealthCheck(Base):
     bitrate_actual: Mapped[float | None] = mapped_column(Float, nullable=True)
     dropped_frames: Mapped[int] = mapped_column(Integer, default=0)
     current_track_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Performance indexes
+    __table_args__ = (
+        Index("idx_health_session_timestamp", "session_id", "timestamp"),
+    )
 
 
 class ScheduleSlot(Base):
