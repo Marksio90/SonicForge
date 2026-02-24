@@ -25,12 +25,14 @@ dependencies = [
     "soundfile>=0.12.1",
     "pyloudnorm>=0.1.1",
     # AI Music Generation (AudioCraft / MusicGen — CC-BY-NC pretrained weights)
-    # NOTE: audiocraft 1.3.0 requires torch==2.1.0 exactly, so we pin to 2.1.x
+    # NOTE: audiocraft's setup.py historically pinned torch==2.1.0, but that version
+    #       is no longer published to the PyTorch CPU wheel index (min: 2.2.0+cpu).
+    #       audiocraft is functionally compatible with torch 2.2+; the pin is stale.
     # NOTE: MusicGen pretrained weights are CC-BY-NC 4.0 (non-commercial use only).
     #       For commercial streaming, prefer ACE-Step or Stable Audio Open Small.
     "audiocraft>=1.3.0",
-    "torch~=2.1.0",
-    "torchaudio~=2.1.0",
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
     "transformers>=4.36.0",
     "accelerate>=0.25.0",
     "bitsandbytes>=0.41.0",
