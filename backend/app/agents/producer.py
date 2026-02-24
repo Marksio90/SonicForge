@@ -16,6 +16,12 @@ try:
 except ImportError:
     _has_replicate = False
 
+# NOTE: Udio API integration was removed (2026-02).
+# Following Udio's settlement with Universal Music Group (November 2025),
+# all WAV/MP3/stem downloads were completely disabled. The platform is
+# building a new licensed service expected in 2026.
+# See: research notes on Udio post-UMG settlement.
+
 settings = get_settings()
 logger = structlog.get_logger(__name__)
 
@@ -286,14 +292,16 @@ class ProducerAgent(BaseAgent):
             variant=variant_num,
         )
 
-        if engine == "musicgen_local":
+        if engine == "acestep":
+            audio_data = await self._generate_acestep(concept)
+        elif engine == "stable_audio":
+            audio_data = await self._generate_stable_audio(concept)
+        elif engine == "musicgen_local":
             audio_data = await self._musicgen.generate(concept)
         elif engine == "musicgen_runpod":
             audio_data = await self._runpod.generate(concept)
         elif engine == "suno" and settings.suno_api_key:
             audio_data = await self._generate_suno(concept)
-        elif engine == "udio" and settings.udio_api_key:
-            audio_data = await self._generate_udio(concept)
         elif engine == "elevenlabs" and settings.elevenlabs_api_key:
             audio_data = await self._generate_elevenlabs(concept)
         elif engine == "replicate" and settings.replicate_api_token and _has_replicate:
@@ -377,35 +385,39 @@ class ProducerAgent(BaseAgent):
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30)
     )
-    async def _generate_udio(self, concept: dict) -> bytes:
-        """Generate music using Udio API (legacy fallback)."""
-        client = _get_http_client()
-        response = await client.post(
-            f"{settings.udio_api_url}/generate",
-            headers={"Authorization": f"Bearer {settings.udio_api_key}"},
-            json={
-                "prompt": concept["prompt"],
-                "duration": 180,
-            },
+    async def _generate_stable_audio(self, concept: dict) -> bytes:
+        """Generate music using Stable Audio Open Small (local, CPU-optimized).
+
+        341M parameters, generates 11s of 44.1 kHz stereo audio in <8s on Arm CPU.
+        Requires ~3.6 GB RAM (INT8 quantized). MIT-compatible license (Stability AI
+        Community License — commercial use permitted).
+        """
+        from ..services.stable_audio_service import StableAudioService
+
+        svc = StableAudioService()
+        prompt = concept.get("prompt", "ambient electronic music")
+        return await svc.generate(prompt=prompt, duration=11)
+
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30)
+    )
+    async def _generate_acestep(self, concept: dict) -> bytes:
+        """Generate music using ACE-Step v1.5 (local, MIT license).
+
+        Supports vocals in 50+ languages and instrumentals up to 10 min.
+        Quality between Suno v4.5 and v5. CPU inference possible with
+        quantization; works with <4 GB VRAM via CPU offloading.
+        MIT license — commercial use permitted.
+        """
+        from ..services.acestep_service import ACEStepService
+
+        svc = ACEStepService()
+        prompt = concept.get("prompt", "electronic music")
+        return await svc.generate(
+            prompt=prompt,
+            duration=180,
+            genre=concept.get("genre", "electronic"),
         )
-        response.raise_for_status()
-        result = response.json()
-
-        generation_id = result["id"]
-        for _ in range(60):
-            await asyncio.sleep(5)
-            status_resp = await client.get(
-                f"{settings.udio_api_url}/generate/{generation_id}",
-                headers={"Authorization": f"Bearer {settings.udio_api_key}"},
-            )
-            status = status_resp.json()
-            if status["status"] == "completed":
-                audio_resp = await client.get(status["audio_url"])
-                return audio_resp.content
-            elif status["status"] == "failed":
-                raise RuntimeError(f"Udio generation failed: {status.get('error')}")
-
-        raise TimeoutError("Udio generation timed out")
 
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=2, max=30)
@@ -456,28 +468,41 @@ class ProducerAgent(BaseAgent):
         return b"\xff\xfb\x90\x00" + b"\x00" * 417
 
     def _select_engine(self, concept: dict, variant_index: int) -> str:
-        """Select the best generation engine — MusicGen local is primary.
+        """Select the best generation engine for each variant.
 
-        Priority order:
-        1. musicgen_local — free, full control, best quality with fine-tuning
-        2. musicgen_runpod — remote GPU fallback
-        3. udio/suno/elevenlabs — legacy paid APIs
-        4. replicate — cloud MusicGen (pay per use)
-        5. placeholder — development mode
+        Priority order (revised 2026-02):
+        1. acestep      — MIT license, vocals + instrumentals, best open-source quality
+        2. stable_audio — MIT-compatible, fastest on CPU (11s clips, <8s generation)
+        3. musicgen_local — CC-BY-NC (non-commercial only on pretrained weights)
+        4. musicgen_runpod — remote GPU fallback via RunPod
+        5. suno         — cloud API, commercial rights, high quality ($30/mo Premier)
+        6. elevenlabs   — cloud fallback
+        7. replicate    — pay-per-use cloud MusicGen
+        8. placeholder  — development mode stub
+
+        NOTE: Udio removed (Nov 2025 UMG settlement — downloads permanently disabled).
+        NOTE: MusicGen pretrained weights are CC-BY-NC. Use ACE-Step or Stable Audio
+              for commercially licensed outputs.
         """
         engines = []
 
-        # Primary: local MusicGen (always available if service is running)
+        # Primary: ACE-Step v1.5 (MIT, best quality, vocals supported)
+        if settings.acestep_enabled:
+            engines.append("acestep")
+
+        # Secondary: Stable Audio Open Small (fast CPU, MIT-compatible)
+        if settings.stable_audio_enabled:
+            engines.append("stable_audio")
+
+        # Tertiary: local MusicGen (CC-BY-NC — non-commercial use only)
         if settings.model_source == "local":
             engines.append("musicgen_local")
 
-        # Secondary: RunPod remote GPU
+        # Remote GPU via RunPod
         if settings.runpod_api_key and settings.runpod_endpoint_id:
             engines.append("musicgen_runpod")
 
-        # Legacy paid fallbacks
-        if settings.udio_api_key:
-            engines.append("udio")
+        # Cloud APIs (paid, commercial rights)
         if settings.suno_api_key:
             engines.append("suno")
         if settings.elevenlabs_api_key:

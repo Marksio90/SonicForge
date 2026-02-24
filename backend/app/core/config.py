@@ -142,7 +142,26 @@ class Settings(BaseSettings):
     s3_bucket_tracks: str = "sonicforge-tracks"
     s3_bucket_visuals: str = "sonicforge-visuals"
 
+    # === ACE-Step v1.5 (MIT license — primary local engine) ===
+    # Released January 2026. Vocals in 50+ languages, instrumentals up to 10 min.
+    # Quality: between Suno v4.5 and v5. CPU inference via quantization + offloading.
+    # https://github.com/ace-step/ACE-Step
+    acestep_enabled: bool = True
+    acestep_api_url: str = "http://acestep:7860"
+    acestep_timeout: int = 600  # seconds
+
+    # === Stable Audio Open Small (Stability AI Community License) ===
+    # 341M params, 44.1 kHz stereo, <8s per 11-second clip on Arm CPU.
+    # INT8 quantized: ~2.9 GB RAM (down from 5.2 GB). Commercial use permitted.
+    # https://huggingface.co/stabilityai/stable-audio-open-small
+    stable_audio_enabled: bool = True
+    stable_audio_model_id: str = "stabilityai/stable-audio-open-small"
+    stable_audio_clips_per_track: int = 8  # 8 × 11s ≈ 88s per track
+
     # === Open-Source AI Music Generation (MusicGen) ===
+    # WARNING: facebook/musicgen-* pretrained weights use CC-BY-NC 4.0 license.
+    # This restricts commercial use of outputs from the pretrained model.
+    # For commercially licensed streams, prefer ACE-Step (MIT) or Stable Audio.
     model_source: str = "local"  # "local" (GPU on host) or "runpod" (remote GPU)
     musicgen_model_version: str = "facebook/musicgen-stereo-large"
     musicgen_api_url: str = "http://musicgen:8001"  # local MusicGen service
@@ -154,13 +173,19 @@ class Settings(BaseSettings):
     runpod_api_key: str = ""
     runpod_endpoint_id: str = ""
 
-    # Legacy paid APIs (optional fallback — set keys to enable)
+    # Cloud APIs (optional paid fallback — set keys to enable)
     suno_api_key: str = ""
     suno_api_url: str = "https://api.suno.ai/v1"
-    udio_api_key: str = ""
-    udio_api_url: str = "https://api.udio.com/v1"
+    # Udio: REMOVED — all downloads disabled after UMG settlement (November 2025).
+    # New licensed platform expected 2026. Do not set udio_api_key.
     elevenlabs_api_key: str = ""
     replicate_api_token: str = ""
+
+    # === TTS for station announcements (Piper local or OpenAI cloud) ===
+    tts_provider: str = "piper"  # "piper" | "openai" | "none"
+    tts_piper_voice: str = "en_US-lessac-medium"
+    tts_openai_voice: str = "alloy"
+    tts_announcement_interval_minutes: int = 20
 
     # === Open-Source Visuals (Stable Diffusion / ComfyUI) ===
     stable_diffusion_url: str = "http://comfyui:7860"  # A1111 or ComfyUI API

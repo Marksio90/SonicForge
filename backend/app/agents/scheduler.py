@@ -79,26 +79,52 @@ class SchedulerAgent(BaseAgent):
         return schedule_decision
 
     async def check_buffer(self) -> dict:
-        """Check if the track buffer is sufficient and trigger generation if needed."""
+        """Check the track buffer and trigger generation with 3-tier adaptive strategy.
+
+        Adaptive generation tiers (based on research findings, 2026-02):
+        ┌──────────────┬──────────────────────────────────────────────────────────┐
+        │ Buffer level │ Strategy                                                 │
+        ├──────────────┼──────────────────────────────────────────────────────────┤
+        │ ≥ 8 tracks   │ Local-only mode: no cloud API calls, save cost          │
+        │ 3–7 tracks   │ Hybrid mode: local + cloud for quality peaks            │
+        │ < 3 tracks   │ Emergency: cloud-priority, all engines, max parallelism │
+        └──────────────┴──────────────────────────────────────────────────────────┘
+        """
         queue_length = self.redis.llen("stream:queue")
         min_buffer = settings.buffer_min_tracks
 
         needs_more = queue_length < min_buffer
         deficit = max(0, min_buffer - queue_length)
 
+        # Determine generation tier
+        if queue_length >= 8:
+            tier = "local_only"
+            priority = "low"
+        elif queue_length >= 3:
+            tier = "hybrid"
+            priority = "normal" if queue_length >= 5 else "high"
+        else:
+            tier = "emergency_cloud"
+            priority = "critical"
+
         if needs_more:
-            priority = "critical" if queue_length < 3 else "high" if queue_length < 5 else "normal"
             self.logger.warning(
                 "buffer_low",
                 current=queue_length,
                 minimum=min_buffer,
                 deficit=deficit,
+                tier=tier,
                 priority=priority,
             )
             await self.send_message("orchestrator", {
                 "type": "generate_tracks",
                 "count": deficit,
                 "priority": priority,
+                "generation_tier": tier,
+                # Emergency tier: prefer fast cloud APIs over slow local CPU
+                "prefer_cloud": tier == "emergency_cloud",
+                # Local-only tier: skip cloud API calls to reduce cost
+                "local_only": tier == "local_only",
             })
 
         return {
@@ -106,6 +132,8 @@ class SchedulerAgent(BaseAgent):
             "minimum_required": min_buffer,
             "needs_generation": needs_more,
             "deficit": deficit,
+            "generation_tier": tier,
+            "priority": priority,
         }
 
     async def process_listener_request(self, request: dict) -> dict:
