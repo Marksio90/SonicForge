@@ -67,9 +67,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Analytics initialization failed: {e}")
 
+    # Start memory management daemon (monitors RSS, runs periodic GC, schedules restart)
+    from .services.memory_manager import memory_manager
+    await memory_manager.start()
+
     yield
 
     # Cleanup
+    await memory_manager.stop()
     await pool_manager.close()
 
 
@@ -145,17 +150,19 @@ async def root():
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    """Enhanced health check with connection pool status."""
+    """Enhanced health check with connection pool and memory status."""
     from .core.connection_pool import pool_manager
     from .core.cache import cache
-    
+    from .services.memory_manager import memory_manager
+
     pool_health = await pool_manager.health_check()
-    
+
     return {
         "status": "healthy",
         "connections": pool_health,
         "cache_stats": cache.get_stats(),
         "pool_stats": pool_manager.get_stats(),
+        "memory": memory_manager.get_stats(),
     }
 
 

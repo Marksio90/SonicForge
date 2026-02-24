@@ -54,10 +54,35 @@ class StatusResponse(BaseModel):
     error: str | None = None
 
 
+def _apply_cpu_optimizations() -> None:
+    """Apply CPU thread and memory optimizations before model inference.
+
+    Based on research findings (2026-02):
+    - Halving thread count avoids OS scheduling overhead on constrained hardware
+    - MKL_NUM_THREADS controls Intel Math Kernel Library parallelism
+    - OMP_NUM_THREADS controls OpenMP thread pool used by PyTorch ops
+
+    NOTE: MusicGen pretrained weights are licensed under CC-BY-NC 4.0,
+    which restricts commercial use of model outputs. For commercial streaming
+    consider ACE-Step (MIT) or Stable Audio Open Small instead.
+    """
+    cpu_count = os.cpu_count() or 4
+    thread_count = max(1, cpu_count // 2)
+    try:
+        import torch
+        torch.set_num_threads(thread_count)
+    except ImportError:
+        pass
+    os.environ.setdefault("MKL_NUM_THREADS", str(thread_count))
+    os.environ.setdefault("OMP_NUM_THREADS", str(thread_count))
+
+
 def get_model():
     """Lazy-load the MusicGen model (cached in memory)."""
     global _model
     if _model is None:
+        _apply_cpu_optimizations()
+
         from audiocraft.models import MusicGen
 
         model_version = os.environ.get(
